@@ -1,0 +1,313 @@
+'use strict';
+
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+const TelegramBot = require('node-telegram-bot-api');
+
+const db              = require('./db');
+const userHandler     = require('./handlers/user');
+const adminTasksH     = require('./handlers/adminTasks');
+const adminSubsH      = require('./handlers/adminSubmissions');
+const withdrawHandler = require('./handlers/withdraw');
+const onboarding      = require('./handlers/onboarding');
+const adminUsersH     = require('./handlers/adminUsers');
+const featuresHandler = require('./handlers/features');
+const rateLimiter     = require('./utils/rateLimiter');
+const { startAutoRefresh, getUsdtEgpRate, getCachedRate } = require('./utils/price');
+
+// ─────────────────────────────────────────────
+//  Validation
+// ─────────────────────────────────────────────
+const TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN || TOKEN === 'YOUR_BOT_TOKEN_HERE') {
+  console.error('❌ ضع توكن البوت في .env  (BOT_TOKEN=...)');
+  process.exit(1);
+}
+
+const ADMIN_IDS = (process.env.ADMIN_IDS || '')
+  .split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+
+if (!ADMIN_IDS.length) console.warn('⚠️ لم يتم تحديد ADMIN_IDS في .env');
+
+// ─────────────────────────────────────────────
+//  Bot
+// ─────────────────────────────────────────────
+const bot = new TelegramBot(TOKEN, { polling: true });
+
+// ── جلب سعر USDT/EGP تلقائياً كل 5 دقائق ─────────────────
+startAutoRefresh();
+
+function isAdmin(userId) { return ADMIN_IDS.includes(userId); }
+
+// ─────────────────────────────────────────────
+//  Callback Idempotency Gate
+//
+//  المشكلة: لما المستخدم يضغط الزرار ويعلق
+//  (بطء نت / retry) يضغط تاني مرة → طلبان
+//  معاً → رصيد يتخصم مرتين أو سحب مكرر.
+//
+//  الحل: نحفظ (userId:callbackData) كـ lock
+//  لمدة CB_GATE_TTL ms — أي query جديد بنفس
+//  البيانات يُرد عليه فوراً ويُعلَّم blocked.
+//  كل handler يفحص query._blocked في أول سطر.
+//
+//  يُسجَّل أولاً قبل كل handlers.
+// ─────────────────────────────────────────────
+const _cbGate    = new Map();   // `${userId}:${data}` → timestamp
+const CB_GATE_TTL = 8000;       // 8 ثواني
+
+// النوافل اللي مش محتاجة lock (navigation بحتة)
+const CB_NAV_PREFIXES = [
+  'pending_page:', 'subs_show:',  'usrs_list:',  'usrs_page:',
+  'adm_tasks_list','wda_menu',    'wda_list:',   'wda_detail:',
+  'adm_task:',     'adm_fields:', 'feat_list:',  'feat_detail:',
+  'subs_list:',    'usr_view:',   'adm_refresh_rate',
+];
+
+function _isNavCb(data) {
+  return CB_NAV_PREFIXES.some(p => data === p || data.startsWith(p));
+}
+
+// تنظيف دوري للـ locks المنتهية
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, ts] of _cbGate.entries())
+    if (now - ts > CB_GATE_TTL) _cbGate.delete(k);
+}, 60_000);
+
+// Gate handler — يجب أن يكون أول شيء مسجَّل
+bot.on('callback_query', (query) => {
+  const data   = query.data || '';
+  const userId = query.from.id;
+
+  if (_isNavCb(data)) return;   // navigation — لا lock
+
+  const key  = `${userId}:${data}`;
+  const now  = Date.now();
+  const last = _cbGate.get(key);
+
+  if (last && now - last < CB_GATE_TTL) {
+    // ضغطة مكررة: أجب بهدوء وعلِّم الـ query
+    bot.answerCallbackQuery(query.id).catch(() => {});
+    query._blocked = true;
+    return;
+  }
+
+  _cbGate.set(key, now);
+  // لا نحرر الـ lock هنا — يُحرَّر بعد CB_GATE_TTL تلقائياً
+  // (عشان أي retry في خلال هذه المدة يُتجاهل)
+});
+
+// ─────────────────────────────────────────────
+//  Admin keyboard
+// ─────────────────────────────────────────────
+function adminMenuKeyboard() {
+  return {
+    reply_markup: {
+      keyboard: [
+        [{ text: '📋 إدارة المهام' }, { text: '➕ مهمة جديدة'  }],
+        [{ text: '📊 إحصائيات'    }, { text: '📤 طلبات السحب' }],
+        [{ text: '👥 المستخدمون'  }, { text: '💱 سعر الصرف'   }],
+      ],
+      resize_keyboard: true,
+    },
+  };
+}
+
+const ADMIN_ONLY_TEXTS = [
+  '📋 إدارة المهام', '➕ مهمة جديدة',
+  '📊 إحصائيات',     '📤 طلبات السحب',
+  '👥 المستخدمون',   '💱 سعر الصرف',
+];
+
+// ─────────────────────────────────────────────
+//  /start
+// ─────────────────────────────────────────────
+bot.onText(/\/start/, (msg) => {
+  if (isAdmin(msg.from.id)) {
+    return bot.sendMessage(
+      msg.chat.id,
+      `👨‍💼 *أهلاً ${msg.from.first_name}!*\n\nأنت مسجل كأدمن.`,
+      { parse_mode: 'Markdown', ...adminMenuKeyboard() }
+    );
+  }
+  // المستخدم العادي — تعالَج بعد register
+});
+
+// ─────────────────────────────────────────────
+//  Rate Limiter + حماية أزرار الأدمن
+// ─────────────────────────────────────────────
+bot.on('message', (msg) => {
+  if (!msg.from) return;
+
+  // حماية أزرار الأدمن (للجميع)
+  if (msg.text && ADMIN_ONLY_TEXTS.includes(msg.text) && !isAdmin(msg.from.id)) {
+    return bot.sendMessage(msg.chat.id, '⛔ هذا القسم للأدمن فقط.');
+  }
+
+  // Rate limiter — الأدمن مستثنى
+  if (!isAdmin(msg.from.id) && !rateLimiter.check(msg.from.id)) {
+    if (rateLimiter.isFirstBlock(msg.from.id)) {
+      bot.sendMessage(
+        msg.chat.id,
+        '⏳ أرسلت رسائل كثيرة بسرعة، انتظر لحظة ثم حاول مجدداً.'
+      ).catch(() => {});
+    }
+  }
+});
+
+// ─────────────────────────────────────────────
+//  حماية Callbacks (أدمن فقط + handleCallbackExtras)
+// ─────────────────────────────────────────────
+bot.on('callback_query', async (query) => {
+  if (query._blocked) return;   // ← Gate حجبها
+
+  const data    = query.data || '';
+  const userId  = query.from.id;
+
+  const isAdminCb = /^(adm_|bulk_|subs_|sub_|sel_|selective_|wda_|usr_|usrs_)/.test(data);
+  if (isAdminCb && !isAdmin(userId)) {
+    return bot.answerCallbackQuery(query.id, {
+      text: '⛔ هذا الإجراء للأدمن فقط.',
+      show_alert: true,
+    });
+  }
+
+  if (isAdmin(userId)) {
+    // زرار تحديث سعر الصرف
+    if (data === 'adm_refresh_rate') {
+      await bot.answerCallbackQuery(query.id, { text: '⏳ جاري الجلب...' });
+      try {
+        const rate = await getUsdtEgpRate();
+        const now  = new Date().toLocaleTimeString('ar-EG', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' });
+        bot.editMessageText(
+          `💱 *سعر الصرف الحالي*\n\n` +
+          `1 USDT = *${rate} EGP*\n` +
+          `🕐 _آخر تحديث: ${now} (Cairo)_`,
+          {
+            chat_id:    query.message.chat.id,
+            message_id: query.message.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '🔄 تحديث الآن', callback_data: 'adm_refresh_rate' },
+              ]],
+            },
+          }
+        ).catch(() => {});
+      } catch {
+        bot.answerCallbackQuery(query.id, { text: '❌ فشل جلب السعر.', show_alert: true });
+      }
+      return;
+    }
+
+    const handled = adminTasksH.handleCallbackExtras(bot, query);
+    if (handled) return;
+  }
+});
+
+// ─────────────────────────────────────────────
+//  💱 سعر الصرف — زرار الأدمن
+// ─────────────────────────────────────────────
+bot.onText(/💱 سعر الصرف/, async (msg) => {
+  if (!isAdmin(msg.from.id)) return;
+
+  const cached = getCachedRate();
+  const age    = Math.round((Date.now() - (cached._fetchedAt || 0)) / 1000);
+
+  // نبعت الـ cache فوراً
+  const cachedMsg = await bot.sendMessage(
+    msg.chat.id,
+    `💱 *سعر الصرف الحالي*\n\n` +
+    `1 USDT = *${cached} EGP*\n` +
+    `🕐 _آخر تحديث: من الـ cache_`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔄 تحديث الآن', callback_data: 'adm_refresh_rate' },
+        ]],
+      },
+    }
+  );
+});
+
+// ─────────────────────────────────────────────
+//  /cancel — إلغاء أي session جارية
+// ─────────────────────────────────────────────
+bot.onText(/\/cancel/, (msg) => {
+  const userId = msg.from.id;
+  const chatId = msg.chat.id;
+
+  // نظّف sessions من كل الـ handlers
+  userHandler.clearSession(userId);
+  adminTasksH.clearSession(userId);
+  adminSubsH.clearSession(userId);
+
+  bot.sendMessage(chatId,
+    isAdmin(userId)
+      ? '✅ تم إلغاء العملية الجارية.'
+      : '✅ تم إلغاء التسليم.',
+    { reply_markup: { remove_keyboard: true } }
+  );
+});
+
+// ─────────────────────────────────────────────
+//  Register handlers  (الترتيب مهم)
+// ─────────────────────────────────────────────
+
+userHandler.register(bot);
+adminTasksH.register(bot, isAdmin);
+adminSubsH.register(bot, isAdmin);
+withdrawHandler.register(bot, isAdmin);
+adminUsersH.register(bot, isAdmin);
+featuresHandler.register(bot, isAdmin);
+
+// onboarding — يمرر sendHome كـ callback بعد اكتمال الإعداد
+onboarding.register(bot, (bot_, chatId, userId, firstName) => {
+  userHandler.sendHome(bot_, chatId, userId, firstName);
+});
+
+// /start للمستخدم العادي
+bot.onText(/\/start/, (msg) => {
+  if (isAdmin(msg.from.id)) return;
+
+  // حفظ بيانات المستخدم
+  db.getUser(msg.from.id);
+  db.updateUserMeta(msg.from.id, {
+    username:  msg.from.username  || null,
+    firstName: msg.from.first_name || null,
+  });
+
+  const user = db.getUser(msg.from.id);
+
+  // فحص الحظر
+  if (user.isBanned) {
+    return bot.sendMessage(
+      msg.chat.id,
+      `🚫 *تم حظر حسابك*\n${user.banReason ? `📝 السبب: ${user.banReason}` : ''}\n\nللاستفسار تواصل مع الإدارة.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  if (onboarding.needsOnboarding(msg.from.id)) {
+    return onboarding.sendLangChoice(bot, msg.chat.id);
+  }
+
+  bot._sendUserStart(msg);
+});
+
+// ─────────────────────────────────────────────
+//  Error handling
+// ─────────────────────────────────────────────
+bot.on('polling_error', (err) => {
+  // ECONNRESET / EFATAL = انقطاع مؤقت في الاتصال — البوت يعيد المحاولة تلقائياً
+  if (err.code === 'EFATAL' || err.code === 'ECONNRESET' || err.message?.includes('ECONNRESET')) {
+    console.warn(`[Polling] انقطاع مؤقت: ${err.message} — سيعاد الاتصال تلقائياً`);
+    return;
+  }
+  console.error('Polling error:', err.code, err.message);
+});
+bot.on('error',         (err) => console.error('Bot error:',    err.message));
+process.on('unhandledRejection', (r) => console.error('Unhandled:', r));
+
+console.log(`✅ البوت يعمل | الأدمنز: [${ADMIN_IDS.join(', ') || 'لا يوجد'}]`);
