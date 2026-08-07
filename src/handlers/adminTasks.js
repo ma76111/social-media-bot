@@ -132,10 +132,13 @@ function fieldsListKeyboard(task) {
   return { inline_keyboard: rows };
 }
 
-function fieldDetailKeyboard(taskId, fieldId) {
+function fieldDetailKeyboard(taskId, fieldId, field = null) {
   const t = sh(taskId), f = sh(fieldId);
-  const task  = db.getTask(taskId);
-  const field = task?.fields.find(fi => fi.id === fieldId);
+  // نستخدم الـ field المُمرَّر لو موجود، وإلا نقرأ من disk
+  if (!field) {
+    const task = db.getTask(taskId);
+    field = task?.fields.find(fi => fi.id === fieldId);
+  }
   const mergeBtn = field?.altType
     ? { text: `🔀 إلغاء النوع البديل (${field.altType})`, callback_data: `adm_alt_rm:${t}:${f}` }
     : { text: '🔀 إضافة نوع بديل', callback_data: `adm_alt:${t}:${f}` };
@@ -370,6 +373,7 @@ function register(bot, isAdmin) {
       await bot.answerCallbackQuery(query.id);
       const taskId = expandTaskId(data.split(':')[1]);
       const task   = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
       bot.sendMessage(chatId, `✏️ *تعديل:* ${escMd(db.getTaskText(task, 'name', 'ar'))}\n\nاختر ما تريد تعديله:`, {
         parse_mode: 'Markdown',
         reply_markup: editTaskKeyboard(taskId),
@@ -391,6 +395,7 @@ function register(bot, isAdmin) {
       await bot.answerCallbackQuery(query.id);
       const taskId = expandTaskId(data.split(':')[1]);
       const task   = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
       bot.sendMessage(chatId,
         `⚠️ هل تريد حذف مهمة "*${escMd(db.getTaskText(task, 'name', 'ar'))}*" نهائياً؟\nسيتم حذف جميع التسليمات المرتبطة بها.`,
         { parse_mode: 'Markdown', reply_markup: confirmDeleteKeyboard(taskId) }
@@ -471,6 +476,7 @@ function register(bot, isAdmin) {
       const task    = db.getTask(taskId);
       const fieldId = task ? expandFieldId(task, fs) : fs;
       const field   = task?.fields.find(f => f.id === fieldId);
+      if (!field) return bot.sendMessage(chatId, '⚠️ الحقل غير موجود.');
       db.updateField(taskId, fieldId, { required: !field.required });
       bot.sendMessage(chatId, `✅ الحقل أصبح ${!field.required ? '🔴 إجباري' : '🟡 اختياري'}`);
       sendFieldDetail(bot, chatId, taskId, fieldId);
@@ -495,8 +501,10 @@ function register(bot, isAdmin) {
       const [, ts, fs] = data.split(':');
       const taskId  = expandTaskId(ts);
       const task    = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
       const fieldId = expandFieldId(task, fs);
       const field   = task.fields.find(f => f.id === fieldId);
+      if (!field) return bot.sendMessage(chatId, '⚠️ الحقل غير موجود.');
 
       // نعرض أنواع الحقول كخيارات (ما عدا النوع الحالي)
       const otherTypes = db.FIELD_TYPES.filter(tp => tp !== field.type);
@@ -525,9 +533,11 @@ function register(bot, isAdmin) {
       const parts   = data.split(':');
       const taskId  = expandTaskId(parts[1]);
       const task    = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
       const fieldId = expandFieldId(task, parts[2]);
       const altType = parts[3];
       const field   = task.fields.find(f => f.id === fieldId);
+      if (!field) return bot.sendMessage(chatId, '⚠️ الحقل غير موجود.');
 
       db.updateField(taskId, fieldId, { altType });
       bot.sendMessage(chatId,
@@ -645,6 +655,7 @@ function sendTaskDetail(bot, chatId, taskId) {
 
 function toggleTask(bot, chatId, taskId) {
   const task = db.getTask(taskId);
+  if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
 
   // منع فتح مهمة بدون حقول
   if (!task.isOpen && (!task.fields || task.fields.length === 0)) {
@@ -747,10 +758,9 @@ function sendFieldDetail(bot, chatId, taskId, fieldId) {
   const field = task?.fields.find(f => f.id === fieldId);
   if (!field) return bot.sendMessage(chatId, '⚠️ الحقل غير موجود.');
 
-  const altInfo   = field.altType ? `🔀 نوع بديل: \`${field.altType}\`` : '—';
-  // عرض الاسم بالعربي والإنجليزي
-  const labelAr   = typeof field.label === 'object' ? (field.label.ar || '—') : (field.label || '—');
-  const labelEn   = typeof field.label === 'object' ? (field.label.en || '—') : (field.label || '—');
+  const altInfo = field.altType ? `🔀 نوع بديل: \`${field.altType}\`` : '—';
+  const labelAr = typeof field.label === 'object' ? (field.label.ar || '—') : (field.label || '—');
+  const labelEn = typeof field.label === 'object' ? (field.label.en || '—') : (field.label || '—');
 
   const text =
     `📝 *تفاصيل الحقل*\n\n` +
@@ -763,7 +773,7 @@ function sendFieldDetail(bot, chatId, taskId, fieldId) {
 
   bot.sendMessage(chatId, text, {
     parse_mode: 'Markdown',
-    reply_markup: fieldDetailKeyboard(taskId, fieldId),
+    reply_markup: fieldDetailKeyboard(taskId, fieldId, field), // نمرر field لتجنب قراءة disk مرة ثانية
   });
 }
 
