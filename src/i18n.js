@@ -30,7 +30,7 @@ const translations = {
 
   // onboarding
   welcome_lang:       {
-    ar: '🎉 *أهلاً بيك في بوت بيع الأكونتات!* �\n\n📱 *فيسبوك • إنستجرام • تيك توك • يوتيوب*\n\n💰 أسرع وأأمن طريقة لبيع أكونتات السوشيال ميديا\n✨ نفّذ المهام واستلم فلوسك فوراً 💸\n🔥 آلاف المستخدمين بيكسبوا كل يوم!\n\n━━━━━━━━━━━━━━━━━━\n🌐 اختر لغتك / Choose your language:',
+    ar: '🎉 *أهلاً بيك في بوت بيع الأكونتات!* 🚀\n\n📱 *فيسبوك • إنستجرام • تيك توك • يوتيوب*\n\n💰 أسرع وأأمن طريقة لبيع أكونتات السوشيال ميديا\n✨ نفّذ المهام واستلم فلوسك فوراً 💸\n🔥 آلاف المستخدمين بيكسبوا كل يوم!\n\n━━━━━━━━━━━━━━━━━━\n🌐 اختر لغتك / Choose your language:',
     en: '🎉 *Welcome to the Accounts Bot!* 🚀\n\n📱 *Facebook • Instagram • TikTok • YouTube*\n\n💰 The fastest & safest way to sell social media accounts\n✨ Complete tasks and get paid instantly 💸\n🔥 Thousands earning daily!\n\n━━━━━━━━━━━━━━━━━━\n🌐 اختر لغتك / Choose your language:',
   },
   welcome_currency:   {
