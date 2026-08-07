@@ -51,8 +51,6 @@ function loadTask(taskId) {
 
 function saveTask(task) {
   fs.writeFileSync(taskPath(task.id), JSON.stringify(task, null, 2), 'utf8');
-  // مسح cache الـ keyboard عند أي تغيير في المهام
-  try { require('./handlers/user').clearKbCacheAll(); } catch {}
 }
 
 function loadUsers() {
@@ -626,8 +624,6 @@ function updateUserSettings(userId, { lang, currency } = {}) {
   if (lang     !== undefined) users[uid].lang     = lang;
   if (currency !== undefined) users[uid].currency = currency;
   saveUsers(users);
-  // مسح cache الـ keyboard عند تغيير الإعدادات
-  try { require('./handlers/user').clearKbCache(userId); } catch {}
   return users[uid];
 }
 
