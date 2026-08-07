@@ -11,6 +11,7 @@ const withdrawHandler = require('./handlers/withdraw');
 const onboarding      = require('./handlers/onboarding');
 const adminUsersH     = require('./handlers/adminUsers');
 const featuresHandler = require('./handlers/features');
+const adminAdminsH    = require('./handlers/adminAdmins');
 const adminSettingsH  = require('./handlers/adminSettings');
 const rateLimiter     = require('./utils/rateLimiter');
 const { startAutoRefresh, getUsdtEgpRate, getCachedRate } = require('./utils/price');
@@ -25,10 +26,14 @@ if (!TOKEN || TOKEN === 'YOUR_BOT_TOKEN_HERE') {
   process.exit(1);
 }
 
-const ADMIN_IDS = (process.env.ADMIN_IDS || '')
+// الأدمن الرئيسيون من .env (ثابتون)
+const MAIN_ADMIN_IDS = (process.env.ADMIN_IDS || '')
   .split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
 
-if (!ADMIN_IDS.length) console.warn('⚠️ لم يتم تحديد ADMIN_IDS في .env');
+if (!MAIN_ADMIN_IDS.length) console.warn('⚠️ لم يتم تحديد ADMIN_IDS في .env');
+
+// القائمة الحية = الرئيسيون + الإضافيون المحفوظون في DB
+let ADMIN_IDS = [...MAIN_ADMIN_IDS, ...db.getExtraAdmins().map(a => a.id)];
 
 // ─────────────────────────────────────────────
 //  Bot
@@ -38,7 +43,12 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 // ── جلب سعر USDT/EGP تلقائياً كل 5 دقائق ─────────────────
 startAutoRefresh();
 
-function isAdmin(userId) { return ADMIN_IDS.includes(userId); }
+// ── callbacks لتحديث قائمة الأدمنز الحية ──────────────────
+bot._onAdminAdded   = (id) => { if (!ADMIN_IDS.includes(id)) ADMIN_IDS.push(id); };
+bot._onAdminRemoved = (id) => { ADMIN_IDS = ADMIN_IDS.filter(a => a !== id); };
+
+function isAdmin(userId)       { return ADMIN_IDS.includes(userId); }
+function isSuperAdmin(userId)  { return MAIN_ADMIN_IDS.includes(userId); }
 
 // ─────────────────────────────────────────────
 //  Callback Idempotency Gate
@@ -106,18 +116,17 @@ bot.on('callback_query', (query) => {
 // ─────────────────────────────────────────────
 //  Admin keyboard
 // ─────────────────────────────────────────────
-function adminMenuKeyboard() {
-  return {
-    reply_markup: {
-      keyboard: [
-        [{ text: '📋 إدارة المهام' }, { text: '➕ مهمة جديدة'  }],
-        [{ text: '📊 إحصائيات'    }, { text: '📤 طلبات السحب' }],
-        [{ text: '👥 المستخدمون'  }, { text: '💱 سعر الصرف'   }],
-        [{ text: '⚙️ الإعدادات'   }],
-      ],
-      resize_keyboard: true,
-    },
-  };
+function adminMenuKeyboard(userId) {
+  const base = [
+    [{ text: '📋 إدارة المهام' }, { text: '➕ مهمة جديدة'  }],
+    [{ text: '📊 إحصائيات'    }, { text: '📤 طلبات السحب' }],
+    [{ text: '👥 المستخدمون'  }, { text: '💱 سعر الصرف'   }],
+    [{ text: '⚙️ الإعدادات'   }],
+  ];
+  if (isSuperAdmin(userId)) {
+    base.push([{ text: '👮 إدارة الأدمنز' }]);
+  }
+  return { reply_markup: { keyboard: base, resize_keyboard: true } };
 }
 
 const ADMIN_ONLY_TEXTS = [
@@ -126,6 +135,7 @@ const ADMIN_ONLY_TEXTS = [
   '👥 المستخدمون',   '💱 سعر الصرف',
   '⚙️ الإعدادات',
   '⚙️ إعدادات النظام', '📨 إرسال رسالة',
+  '👮 إدارة الأدمنز',
 ];
 
 // ─────────────────────────────────────────────
@@ -136,7 +146,7 @@ bot.onText(/\/start/, (msg) => {
     return bot.sendMessage(
       msg.chat.id,
       `👨‍💼 *أهلاً ${escMd(msg.from.first_name)}!*\n\nأنت مسجل كأدمن.`,
-      { parse_mode: 'Markdown', ...adminMenuKeyboard() }
+      { parse_mode: 'Markdown', ...adminMenuKeyboard(msg.from.id) }
     );
   }
   // المستخدم العادي — تعالَج بعد register
@@ -283,7 +293,8 @@ adminSubsH.register(bot, isAdmin);
 withdrawHandler.register(bot, isAdmin);
 adminUsersH.register(bot, isAdmin);
 featuresHandler.register(bot, isAdmin);
-adminSettingsH.register(bot, isAdmin, adminMenuKeyboard().reply_markup);
+adminAdminsH.register(bot, isAdmin, isSuperAdmin, MAIN_ADMIN_IDS);
+adminSettingsH.register(bot, isAdmin, (uid) => adminMenuKeyboard(uid).reply_markup);
 
 // onboarding — يمرر sendHome كـ callback بعد اكتمال الإعداد
 onboarding.register(bot, (bot_, chatId, userId, firstName) => {
@@ -370,4 +381,4 @@ process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGHUP',  () => gracefulShutdown('SIGHUP'));
 
-console.log(`✅ البوت يعمل | الأدمنز: [${ADMIN_IDS.join(', ') || 'لا يوجد'}]`);
+console.log(`✅ البوت يعمل | الأدمن الرئيسي: [${MAIN_ADMIN_IDS.join(', ')}] | الإضافيون: [${db.getExtraAdmins().map(a=>a.id).join(', ') || 'لا يوجد'}]`);

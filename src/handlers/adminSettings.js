@@ -117,7 +117,9 @@ function register(bot, isAdmin, mainKeyboard) {
     if (!isAdmin(msg.from.id)) return;
     clearSession(msg.from.id);
     bot.sendMessage(msg.chat.id, '🏠 القائمة الرئيسية', {
-      reply_markup: mainKeyboard,
+      reply_markup: typeof mainKeyboard === 'function'
+        ? mainKeyboard(msg.from.id)
+        : mainKeyboard,
     });
   });
 

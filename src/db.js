@@ -757,6 +757,49 @@ function setSetting(key, value) {
 }
 
 // ─────────────────────────────────────────────
+//  ADMINS  (أدمنز إضافيون — يُحفظون في settings)
+// ─────────────────────────────────────────────
+
+/**
+ * جلب قائمة الأدمنز الإضافيين (مش الرئيسيين من .env)
+ * @returns {Array<{id: number, addedAt: string}>}
+ */
+function getExtraAdmins() {
+  return getSettings().extraAdmins || [];
+}
+
+/**
+ * إضافة أدمن جديد
+ * @param {number} userId
+ * @returns {boolean} true لو أُضيف، false لو موجود مسبقاً
+ */
+function addExtraAdmin(userId) {
+  const settings = loadSettings();
+  if (!settings.extraAdmins) settings.extraAdmins = [];
+  if (settings.extraAdmins.find(a => a.id === userId)) return false;
+  settings.extraAdmins.push({ id: userId, addedAt: now() });
+  saveSettings(settings);
+  _settingsCache = settings;
+  return true;
+}
+
+/**
+ * حذف أدمن
+ * @param {number} userId
+ * @returns {boolean} true لو اتحذف، false لو مش موجود
+ */
+function removeExtraAdmin(userId) {
+  const settings = loadSettings();
+  if (!settings.extraAdmins) return false;
+  const before = settings.extraAdmins.length;
+  settings.extraAdmins = settings.extraAdmins.filter(a => a.id !== userId);
+  if (settings.extraAdmins.length === before) return false;
+  saveSettings(settings);
+  _settingsCache = settings;
+  return true;
+}
+
+// ─────────────────────────────────────────────
 //  WITHDRAWALS  (طلبات السحب)
 // ─────────────────────────────────────────────
 //
@@ -870,6 +913,8 @@ module.exports = {
   // Settings
   getSettings, getSetting, setSetting,
   DEFAULT_SETTINGS,
+  // Admins
+  getExtraAdmins, addExtraAdmin, removeExtraAdmin,
   // Withdrawals
   createWithdrawal, getWithdrawals, getUserWithdrawals, updateWithdrawalStatus,
 };
