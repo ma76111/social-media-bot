@@ -557,6 +557,7 @@ function register(bot, isAdmin) {
       const [, ts, fs] = data.split(':');
       const taskId  = expandTaskId(ts);
       const task    = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
       const fieldId = expandFieldId(task, fs);
       db.updateField(taskId, fieldId, { altType: null });
       bot.sendMessage(chatId, '✅ تم حذف النوع البديل.');
@@ -1148,7 +1149,8 @@ function handleCallbackExtras(bot, query) {
     const { taskId, label, type } = session.data;
     const field = db.addField(taskId, { label, type, required: req === 'true' });
     clearSession(adminId);
-    bot.sendMessage(chatId, `✅ تم إضافة الحقل "*${field.label}*" بنجاح.`, { parse_mode: 'Markdown' });
+    const fieldName = typeof field.label === 'object' ? (field.label.ar || field.label.en || '') : (field.label || '');
+    bot.sendMessage(chatId, `✅ تم إضافة الحقل "*${escMd(fieldName)}*" بنجاح.`, { parse_mode: 'Markdown' });
     sendFieldsList(bot, chatId, taskId);
     return true;
   }

@@ -63,6 +63,17 @@ function wdPendingRow(w, page) {
 }
 
 // ─────────────────────────────────────────────
+//  Reply keyboard للإلغاء — يظهر في القائمة السفلية
+// ─────────────────────────────────────────────
+function cancelReplyKeyboard(lang) {
+  return {
+    keyboard: [[{ text: t('btn_cancel', lang) }]],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+  };
+}
+
+// ─────────────────────────────────────────────
 //  Keyboards
 // ─────────────────────────────────────────────
 function methodKeyboard(lang) {
@@ -192,6 +203,15 @@ async function handleWithdrawText(bot, msg, userId) {
   const lang     = getLang(userId);
   const currency = getCurrency(userId);
 
+  // إلغاء من القائمة السفلية في أي خطوة
+  if (text === t('btn_cancel', lang) || text === t('btn_cancel', 'ar') || text === t('btn_cancel', 'en')) {
+    clearSession(userId);
+    bot.sendMessage(chatId, t('wd_cancelled', lang), {
+      reply_markup: { remove_keyboard: true },
+    });
+    return;
+  }
+
   // إدخال التفاصيل (رقم الهاتف أو Binance ID)
   if (step === 'details') {
     if (!text) return bot.sendMessage(chatId, '⚠️ ' + (lang === 'ar' ? 'أدخل البيانات.' : 'Enter valid data.'));
@@ -206,7 +226,7 @@ async function handleWithdrawText(bot, msg, userId) {
     return bot.sendMessage(
       chatId,
       `✅ \`${text}\`\n\n${t('wd_enter_amount', lang, balDisplay, symbol)}`,
-      { parse_mode: 'Markdown' }
+      { parse_mode: 'Markdown', reply_markup: cancelReplyKeyboard(lang) }
     );
   }
 
@@ -277,7 +297,7 @@ async function handleWithdrawText(bot, msg, userId) {
 
     return bot.sendMessage(chatId, summary, {
       parse_mode: 'Markdown',
-      reply_markup: confirmWdKeyboard(lang),
+      reply_markup: confirmWdKeyboard(lang),  // inline فقط — نشيل reply keyboard
     });
   }
 
@@ -388,7 +408,10 @@ function register(bot, isAdmin) {
         hint = t('wd_enter_binance', lang);
       }
       setSession(userId, 'details', { method });
-      bot.sendMessage(chatId, hint, { parse_mode: 'Markdown' });
+      bot.sendMessage(chatId, hint, {
+        parse_mode: 'Markdown',
+        reply_markup: cancelReplyKeyboard(lang),
+      });
       return;
     }
 
@@ -419,7 +442,9 @@ function register(bot, isAdmin) {
     if (data === 'wd_cancel') {
       await bot.answerCallbackQuery(query.id);
       clearSession(userId);
-      bot.sendMessage(chatId, t('wd_cancelled', lang));
+      bot.sendMessage(chatId, t('wd_cancelled', lang), {
+        reply_markup: { remove_keyboard: true },
+      });
       return;
     }
 
@@ -444,7 +469,7 @@ function register(bot, isAdmin) {
       const { display, symbol } = await formatAmount(amountEgp, currency);
       bot.sendMessage(chatId,
         t('wd_success', lang, wd.id.substring(0, 8), methodLabel(method, lang), display, symbol),
-        { parse_mode: 'Markdown' }
+        { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } }
       );
       return;
     }
