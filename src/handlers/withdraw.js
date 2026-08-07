@@ -482,6 +482,32 @@ function register(bot, isAdmin) {
         t('wd_success', lang, wd.id.substring(0, 8), methodLabel(method, lang), display, symbol),
         { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } }
       );
+
+      // إشعار الأدمنز بطلب السحب الجديد
+      const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      const networkNote = isUsdt(method)
+        ? `🌐 الشبكة: *${method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n`
+        : '';
+      for (const adminId of ADMIN_IDS) {
+        bot.sendMessage(adminId,
+          `💳 *طلب سحب جديد!*\n\n` +
+          `👤 المستخدم: ${escMd(username)}\n` +
+          `🆔 \`${userId}\`\n` +
+          `💰 المبلغ: *${display} ${symbol}*\n` +
+          `💳 الطريقة: ${methodLabel(method, 'ar')}\n` +
+          networkNote +
+          `📋 ${isUsdt(method) ? 'العنوان' : 'التفاصيل'}: \`${escMd(details)}\`\n` +
+          `📅 ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '📤 طلبات السحب', callback_data: 'wda_list:pending:0' },
+              ]],
+            },
+          }
+        ).catch(() => {});
+      }
       return;
     }
 
@@ -539,7 +565,30 @@ function register(bot, isAdmin) {
         `📞 لو في أي مشكلة تواصل مع الدعم.`
       );
 
-      // حذف الطلب من القائمة وتحديث الرسالة بالطلبات المتبقية
+      // رسالة الجروب بعد الموافقة
+      const withdrawalGroup = process.env.WITHDRAWAL_GROUP;
+      const botUsername     = process.env.BOT_USERNAME || '';
+      if (withdrawalGroup) {
+        const userObj   = db.getUser(wd.userId);
+        const userMention = userObj?.username ? `@${escMd(userObj.username)}` : escMd(userObj?.firstName || String(wd.userId));
+        const { display: egpDisplay } = await formatAmount(wd.amount, 'egp');
+        const now = new Date().toLocaleString('ar-EG', {
+          timeZone: 'Africa/Cairo',
+          year: 'numeric', month: 'numeric', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+        const groupMsg =
+          `🎉 *تم صرف مكافأة جديدة!*\n\n` +
+          `👤 المستخدم: ${userMention}\n` +
+          `💵 القيمة: *${egpDisplay}.00 جنيه*\n` +
+          `🕐 الوقت: ${now}\n\n` +
+          `🙏 شكراً لأنك تعمل معنا!\n` +
+          `💪 استمر في العمل وستحصل على المزيد\n\n` +
+          `🤖 ${escMd(botUsername)}`;
+        bot.sendMessage(withdrawalGroup, groupMsg, { parse_mode: 'Markdown' }).catch(() => {});
+      }
+
+      // تحديث قائمة الطلبات المعلقة
       await editWdPendingList(bot, chatId, query.message.message_id, page);
       return;
     }
@@ -559,6 +608,31 @@ function register(bot, isAdmin) {
       await notifyUser(bot, wd.userId,
         t('notify_wd_approved', userLang, methodLabel(wd.method, userLang), display, symbol, wd.details)
       );
+
+      // رسالة الجروب
+      const withdrawalGroup = process.env.WITHDRAWAL_GROUP;
+      const botUsername     = process.env.BOT_USERNAME || '';
+      if (withdrawalGroup) {
+        const userObj     = db.getUser(wd.userId);
+        const userMention = userObj?.username ? `@${escMd(userObj.username)}` : escMd(userObj?.firstName || String(wd.userId));
+        const { display: egpDisplay } = await formatAmount(wd.amount, 'egp');
+        const now = new Date().toLocaleString('ar-EG', {
+          timeZone: 'Africa/Cairo',
+          year: 'numeric', month: 'numeric', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+        bot.sendMessage(withdrawalGroup,
+          `🎉 *تم صرف مكافأة جديدة!*\n\n` +
+          `👤 المستخدم: ${userMention}\n` +
+          `💵 القيمة: *${egpDisplay}.00 جنيه*\n` +
+          `🕐 الوقت: ${now}\n\n` +
+          `🙏 شكراً لأنك تعمل معنا!\n` +
+          `💪 استمر في العمل وستحصل على المزيد\n\n` +
+          `🤖 ${escMd(botUsername)}`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
+
       sendWdList(bot, chatId, 'pending', page);
       return;
     }
