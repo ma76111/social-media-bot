@@ -519,6 +519,16 @@ function register(bot, isAdmin) {
   bot.onText(/💳 سحب|💳 Withdraw/i, async (msg) => {
     const userId = msg.from.id;
     if (isAdmin(userId)) return;
+
+    // لو في session سحب نشط في نفس اللحظة → تجاهل لمنع التكرار
+    // (الـ message handler وonText يشتغلوا في نفس الوقت على نفس الرسالة)
+    const existing = getSession(userId);
+    if (existing && existing.step === 'select_method') return;
+    // لو في session سحب نشط في نفس اللحظة → تجاهل لمنع التكرار
+    // (الـ message handler وonText يشتغلوا في نفس الوقت على نفس الرسالة)
+    const existing = getSession(userId);
+    if (existing && existing.step === 'select_method') return;
+
     const lang     = getLang(userId);
     const currency = getCurrency(userId);
     const user     = db.getUser(userId);
@@ -538,6 +548,8 @@ function register(bot, isAdmin) {
         { parse_mode: 'Markdown' }
       );
     }
+
+    // نسجل الـ session فوراً (قبل أي await) لمنع التكرار
     clearSession(userId);
     setSession(userId, 'select_method', {});
 
