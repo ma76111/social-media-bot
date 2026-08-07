@@ -206,9 +206,23 @@ async function handleWithdrawText(bot, msg, userId) {
   // إلغاء من القائمة السفلية في أي خطوة
   if (text === t('btn_cancel', lang) || text === t('btn_cancel', 'ar') || text === t('btn_cancel', 'en')) {
     clearSession(userId);
-    bot.sendMessage(chatId, t('wd_cancelled', lang), {
-      reply_markup: { remove_keyboard: true },
-    });
+    const user = db.getUser(userId);
+    const { display: bal, symbol } = await formatAmount(user.balance, currency);
+    // عرض تاريخ السحوبات السابقة (آخر 3)
+    const history = db.getUserWithdrawals(userId);
+    let historyText = '';
+    if (history.length > 0) {
+      const statusIcon = { pending: '⏳', approved: '✅', rejected: '❌' };
+      historyText = `\n\n📋 *${lang === 'ar' ? 'آخر سحوباتك:' : 'Recent withdrawals:'}*\n`;
+      for (const w of history.slice(0, 3)) {
+        const { display: wAmt, symbol: wSym } = await formatAmount(w.amount, currency);
+        historyText += `${statusIcon[w.status] || '•'} ${wAmt} ${wSym} — ${methodLabel(w.method, lang)} — ${w.createdAt.substring(0, 10)}\n`;
+      }
+    }
+    bot.sendMessage(chatId,
+      `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
+      { parse_mode: 'Markdown', reply_markup: methodKeyboard(lang) }
+    );
     return;
   }
 
