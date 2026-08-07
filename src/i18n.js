@@ -30,22 +30,22 @@ const translations = {
 
   // onboarding
   welcome_lang:       {
-    ar: '👋 *أهلاً بيك!*\n\n📱 نفّذ المهام واستلم فلوسك بسرعة وأمان.\n\n🌐 اختر لغتك / Choose your language:',
-    en: '👋 *Welcome!*\n\n📱 Complete tasks and get paid fast and securely.\n\n🌐 اختر لغتك / Choose your language:',
+    ar: '🎉 *أهلاً بيك في بوت بيع الأكونتات!* 🚀\n\n📱 *فيسبوك • إنستجرام • تيك توك • يوتيوب*\n\n💰 أسرع وأأمن طريقة لبيع أكونتات السوشيال ميديا\n✨ نفّذ المهام واستلم فلوسك فوراً 💸\n🔥 آلاف المستخدمين بيكسبوا كل يوم!\n\n━━━━━━━━━━━━━━━━━━\n🌐 اختر لغتك / Choose your language:',
+    en: '🎉 *Welcome to the Accounts Bot!* 🚀\n\n📱 *Facebook • Instagram • TikTok • YouTube*\n\n💰 The fastest & safest way to sell social media accounts\n✨ Complete tasks and get paid instantly 💸\n🔥 Thousands earning daily!\n\n━━━━━━━━━━━━━━━━━━\n🌐 اختر لغتك / Choose your language:',
   },
   welcome_currency:   {
-    ar: '💱 اختر العملة اللي هتستلم بيها أرباحك:',
-    en: '💱 Choose your preferred currency for earnings:',
+    ar: '✅ *تمام!*\n\n💱 اختار العملة اللي عايز تستلم بيها أرباحك:',
+    en: '✅ *Great choice!*\n\n💱 Choose your preferred currency for earnings:',
   },
   onboarding_done:    {
-    ar: '✅ *تم الإعداد بنجاح!*\n\n📋 اضغط على أي مهمة من القائمة لتبدأ.',
-    en: '✅ *Setup complete!*\n\n📋 Tap any task from the menu to get started.',
+    ar: '🎊 *مرحباً بيك في الفريق!* 🔥\n\n✅ تم الإعداد بنجاح\n\n💡 *ازاي تبدأ؟*\n👇 اضغط على أي مهمة من القائمة\n📋 نفّذ الخطوات المطلوبة\n💰 استلم مكافأتك فوراً!\n\n⚙️ تقدر تغير إعداداتك من *التفضيلات* في أي وقت.',
+    en: '🎊 *Welcome to the team!* 🔥\n\n✅ Setup complete!\n\n💡 *How to start?*\n👇 Tap any task from the menu\n📋 Follow the required steps\n💰 Receive your reward instantly!\n\n⚙️ Change your settings anytime from *Preferences*.',
   },
 
   // home
   home_greeting:      {
-    ar: (name) => `👋 *أهلاً ${name}!*\n\n📋 اختار مهمة وابدأ:`,
-    en: (name) => `👋 *Hello ${name}!*\n\n📋 Choose a task to start:`,
+    ar: (name) => `👋 *أهلاً ${name}!* 🔥\n\n📋 *اختار مهمة وابدأ تكسب دلوقتي:*`,
+    en: (name) => `👋 *Hello ${name}!* 🔥\n\n📋 *Choose a task and start earning now:*`,
   },
   home_no_tasks:      {
     ar: '⏳ مفيش مهام متاحة دلوقتي، هيتم إضافة مهام قريباً! 🔜',
@@ -54,8 +54,8 @@ const translations = {
 
   // balance
   balance_text:       {
-    ar: (bal, earned, sym) => `💰 *الرصيد الحالي:* \`${bal} ${sym}\`\n📊 *إجمالي الأرباح:* \`${earned} ${sym}\``,
-    en: (bal, earned, sym) => `💰 *Current Balance:* \`${bal} ${sym}\`\n📊 *Total Earned:* \`${earned} ${sym}\``,
+    ar: (bal, earned, sym) => `💰 *رصيدك الحالي:* \`${bal} ${sym}\`\n📊 *إجمالي أرباحك:* \`${earned} ${sym}\`\n\n💪 استمر في تنفيذ المهام وزود رصيدك! 🔥`,
+    en: (bal, earned, sym) => `💰 *Current Balance:* \`${bal} ${sym}\`\n📊 *Total Earned:* \`${earned} ${sym}\`\n\n💪 Keep completing tasks and grow your balance! 🔥`,
   },
 
   // pending
@@ -105,8 +105,8 @@ const translations = {
   btn_confirm_sub:    { ar: '✅ تأكيد التسليم',              en: '✅ Confirm'                    },
   btn_cancel:         { ar: '❌ إلغاء',                      en: '❌ Cancel'                     },
   sub_success:        {
-    ar: (id) => `✅ *تم إرسال تسليمك بنجاح*\n\n🆔 \`${id}\`\n⏳ قيد المراجعة — ستصلك إشعار فور الموافقة.`,
-    en: (id) => `✅ *Submission sent successfully*\n\n🆔 \`${id}\`\n⏳ Under review — you'll be notified once approved.`,
+    ar: (id) => `🎉 *تم إرسال تسليمك بنجاح!*\n\n🆔 معرف التسليم: \`${id}\`\n⏳ الحالة: *قيد المراجعة*\n\n💪 شكراً! فريقنا هيراجع تسليمك في أقرب وقت.\n🔔 هتوصلك إشعار فور الموافقة 💰`,
+    en: (id) => `🎉 *Submission sent successfully!*\n\n🆔 ID: \`${id}\`\n⏳ Status: *Under review*\n\n💪 Thank you! Our team will review your submission shortly.\n🔔 You'll be notified once approved 💰`,
   },
   sub_session_expired:{ ar: '⚠️ انتهت الجلسة، ابدأ من جديد.',
                         en: '⚠️ Session expired, please start again.'                  },
@@ -171,17 +171,17 @@ const translations = {
     en: '✅ *Your account ban has been lifted.*\nYou can now use the bot again. 🎉',
   },
   notify_approaching_limit: {
-    ar: (task, remaining) => `⚠️ تبقى لك *${remaining}* تسليم فقط في مهمة: *${task}*`,
-    en: (task, remaining) => `⚠️ You have *${remaining}* submission(s) left for: *${task}*`,
+    ar: (task, remaining) => `⚠️ *تنبيه!*\n\n📌 المهمة: *${task}*\nلديك *${remaining}* تسليم متبقي فقط في هذه المهمة.\nاستغل الفرصة قبل انتهاء الحد! 🔥`,
+    en: (task, remaining) => `⚠️ *Heads up!*\n\n📌 Task: *${task}*\nYou have only *${remaining}* submission(s) left for this task.\nMake the most of it! 🔥`,
   },
   // notifications (submission)
   notify_approved: {
-    ar: (task, id, r, s) => `✅ *تم قبول تسليمك*\n\n📌 ${task}\n🆔 \`${id}\`\n💰 \`${r} ${s}\` أُضيفت لرصيدك.`,
-    en: (task, id, r, s) => `✅ *Submission approved*\n\n📌 ${task}\n🆔 \`${id}\`\n💰 \`${r} ${s}\` added to your balance.`,
+    ar: (task, id, r, s) => `🎊 *مبروك! تم قبول تسليمك!* 🔥\n\n📌 المهمة: *${task}*\n🆔 التسليم: \`${id}\`\n💰 المكافأة: \`${r} ${s}\` ✅ تمت إضافتها لرصيدك!\n\n💸 استمر وكسب أكتر! 🚀`,
+    en: (task, id, r, s) => `🎊 *Congratulations! Submission approved!* 🔥\n\n📌 Task: *${task}*\n🆔 ID: \`${id}\`\n💰 Reward: \`${r} ${s}\` ✅ Added to your balance!\n\n💸 Keep going and earn more! 🚀`,
   },
   notify_rejected: {
-    ar: (task, id, reason) => `❌ *تم رفض تسليمك*\n\n📌 ${task}\n🆔 \`${id}\`${reason ? `\n📝 السبب: ${reason}` : ''}`,
-    en: (task, id, reason) => `❌ *Submission rejected*\n\n📌 ${task}\n🆔 \`${id}\`${reason ? `\n📝 Reason: ${reason}` : ''}`,
+    ar: (task, id, reason) => `❌ *تم رفض تسليمك*\n\n📌 المهمة: *${task}*\n🆔 التسليم: \`${id}\`\n${reason ? `📝 السبب: ${reason}\n` : ''}\n💡 راجع الشروط وحاول تاني، أنت قادر! 💪`,
+    en: (task, id, reason) => `❌ *Submission rejected*\n\n📌 Task: *${task}*\n🆔 ID: \`${id}\`\n${reason ? `📝 Reason: ${reason}\n` : ''}\n💡 Review the requirements and try again, you got this! 💪`,
   },
 };
 

@@ -114,6 +114,9 @@ function register(bot, onDone) {
       const lang = text === BTN_LANG_AR ? 'ar' : 'en';
       db.updateUserSettings(userId, { lang });
 
+      // رسالة الترحيب الكاملة بلغته بعد الاختيار
+      await bot.sendMessage(msg.chat.id, t('welcome_lang', lang), { parse_mode: 'Markdown' });
+
       // إذا عنده عملة مسبقاً → اكتمل الـ onboarding
       if (user.currency) {
         await bot.sendMessage(msg.chat.id, t('onboarding_done', lang), { parse_mode: 'Markdown' });

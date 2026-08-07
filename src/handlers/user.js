@@ -182,27 +182,22 @@ function extractValue(type, msg) {
 //  Summary (ملخص التسليم)
 // ─────────────────────────────────────────────
 function buildSummary(task, answers, lang) {
-  const fields  = [...task.fields].sort((a, b) => a.order - b.order);
-  const name    = db.getTaskText(task, 'name', lang);
-  const ar      = lang === 'ar';
-  let raw = `📌 ${name}\n`;
-  raw    += `━━━━━━━━━━━━━━━━━━\n`;
+  const fields = [...task.fields].sort((a, b) => a.order - b.order);
+  let raw = '';
 
   for (const f of fields) {
-    const val   = answers[f.id];
-    const label = getFieldLabel(f, lang);
-    if (!val && val !== 0) continue;
+    const val = answers[f.id];
+    if (!val) continue;
     if (f.type === 'image' || f.type === 'file') {
-      raw += `${label}: ✅ ${ar ? 'تم الرفع' : 'Uploaded'}\n`;
+      raw += `✅ ${lang === 'ar' ? 'تم رفع' : 'Uploaded'}: ${getFieldLabel(f, lang)}\n`;
     } else {
-      raw += `${label}: %%${val}%%\n`;
+      raw += `%%${val}%%\n`;
     }
   }
 
-  if (raw.split('\n').length <= 3) raw += `${ar ? '_(فارغ)_' : '_(empty)_'}\n`;
+  if (!raw) raw = t('review_empty', lang) + '\n';
 
-  raw += `━━━━━━━━━━━━━━━━━━\n`;
-  raw += ar ? 'تأكيد التسليم؟' : 'Confirm submission?';
+  raw += `\n${t('review_question', lang)}`;
   return parseCodeSpans(raw);
 }
 
@@ -581,49 +576,48 @@ async function _sendTaskDetail(bot, chatId, task, userId) {
   const name     = db.getTaskText(task, 'name',     lang);
   const fullDesc = db.getTaskText(task, 'fullDesc', lang);
 
+  // نسجل قبل أي await
   _pendingStart[userId] = task.id;
 
-  // 1) فيديو (لو موجود)
+  // 1) فيديو
   if (task.videoFileId) await bot.sendVideo(chatId, task.videoFileId, { caption: '🎥' });
 
-  // 2) رسالة واحدة: اسم + مكافأة + وصف
-  const rewardLine  = `💰 ${display} ${symbol}`;
-  const prefix      = `📌 *${escMd(name)}*\n${rewardLine}${fullDesc ? '\n\n' : ''}`;
-  const prefixU16   = utf16len(prefix);
+  // 2) اسم + مكافأة — Markdown مضمون (escMd على name)
+  await bot.sendMessage(chatId,
+    `📌 *${escMd(name)}*\n\n${t('task_reward', lang, display, symbol)}`,
+    { parse_mode: 'Markdown' }
+  );
 
-  let msgText = prefix;
-  let entities = [];
-
+  // 3) الوصف — plain text مع %%..%% → code entity
   if (fullDesc) {
-    const { text: cleanDesc, entities: descEnt } = parseCodeSpans(fullDesc);
-    msgText  += cleanDesc;
-    entities  = descEnt.map(e => ({ ...e, offset: e.offset + prefixU16 }));
+    const label       = t('task_desc_label', lang);
+    const prefix      = label + '\n';
+    const prefixU16   = utf16len(prefix);
+    const { text: cleanDesc, entities: descEntities } = parseCodeSpans(fullDesc);
+    const shiftedEnt  = descEntities.map(e => ({ ...e, offset: e.offset + prefixU16 }));
+    await bot.sendMessage(chatId, prefix + cleanDesc,
+      shiftedEnt.length ? { entities: shiftedEnt } : {}
+    );
   }
 
-  await bot.sendMessage(chatId, msgText, {
-    parse_mode: 'Markdown',
-    ...(entities.length ? { entities: undefined } : {}),
-  });
-
-  // 3) ميزات inline (لو موجودة)
+  // 4) ميزات inline
   const { buildFeatureButtons } = require('./features');
   const featRows = buildFeatureButtons(task, lang);
   if (featRows.length > 0) {
     await bot.sendMessage(chatId,
-      lang === 'ar' ? '🎯 *أدوات مفيدة:*' : '🎯 *Useful tools:*',
+      lang === 'ar' ? '🎯 *أدوات هتحتاجها:*' : '🎯 *Tools You\'ll Need:*',
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: featRows } }
     );
   }
 
-  // 4) زرار البدء
+  // 5) بدء التنفيذ + إلغاء
+  const startBtn  = t('btn_start_task', lang);
+  const cancelBtn = lang === 'ar' ? BTN_CANCEL_AR : BTN_CANCEL_EN;
   await bot.sendMessage(chatId,
     lang === 'ar' ? '👇 اضغط لبدء التنفيذ:' : '👇 Press to start:',
     {
       reply_markup: {
-        keyboard: [[
-          { text: t('btn_start_task', lang) },
-          { text: lang === 'ar' ? BTN_CANCEL_AR : BTN_CANCEL_EN },
-        ]],
+        keyboard: [[{ text: startBtn }, { text: cancelBtn }]],
         resize_keyboard: true,
         one_time_keyboard: true,
       },
@@ -786,7 +780,7 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
       lang === 'ar'
         ? '⛔ *هذه البيانات مسجلة مسبقاً.*\n\nلا يمكن تسليم نفس البيانات أكثر من مرة.'
         : '⛔ *This data has already been submitted.*\n\nDuplicate submissions are not allowed.',
-      { parse_mode: 'Markdown', ...await mainMenuKeyboardForUser(tasks, userId) }
+      { parse_mode: 'Markdown', ...mainMenuKeyboardForUser(tasks, userId) }
     );
   }
 
@@ -877,20 +871,18 @@ async function _sendTaskDetailPreview(bot, chatId, task, adminId, lang = 'ar') {
   );
 }
 async function notifyUser(bot, userId, text) {
+  // نحاول Markdown أولاً — لو فشل نبعت plain text
   try {
     await bot.sendMessage(userId, text, { parse_mode: 'Markdown' });
     return true;
   } catch (e) {
-    // لو فشل بسبب Markdown مكسور → نبعت plain text
-    const isTelegramErr = e.code === 'ETELEGRAM' || e.response?.statusCode === 400;
-    if (isTelegramErr) {
+    if (e.code === 'ETELEGRAM') {
       try {
-        const plain = text.replace(/[*_`[\]()~>#+=|{}.!\\]/g, '\\$&')
-          .replace(/\\\*/g, '*').replace(/\\`/g, '`')
-          // تبسيط: شيل رموز Markdown فقط
-          .replace(/\*([^*\n]+)\*/g, '$1')
-          .replace(/_([^_\n]+)_/g, '$1')
-          .replace(/`([^`\n]+)`/g, '$1');
+        // plain text fallback — نشيل رموز Markdown
+        const plain = text
+          .replace(/\*([^*]+)\*/g, '$1')
+          .replace(/_([^_]+)_/g, '$1')
+          .replace(/`([^`]+)`/g, '$1');
         await bot.sendMessage(userId, plain);
         return true;
       } catch { return false; }
