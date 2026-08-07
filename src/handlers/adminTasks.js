@@ -769,14 +769,24 @@ function sendFieldDetail(bot, chatId, taskId, fieldId) {
 
 function moveField(bot, chatId, taskId, fieldId, direction) {
   const task   = db.getTask(taskId);
+  if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
+
+  // نرتب الحقول حسب order الحالي
   const fields = [...task.fields].sort((a, b) => a.order - b.order);
   const idx    = fields.findIndex(f => f.id === fieldId);
+
+  if (idx === -1) return bot.sendMessage(chatId, '⚠️ الحقل غير موجود.');
+
   const newIdx = idx + direction;
   if (newIdx < 0 || newIdx >= fields.length) {
     return bot.sendMessage(chatId, '⚠️ لا يمكن تحريك الحقل أكثر من ذلك.');
   }
-  [fields[idx].order, fields[newIdx].order] = [fields[newIdx].order, fields[idx].order];
-  db.reorderFields(taskId, fields.map(f => f.id));
+
+  // نبني الترتيب الجديد بتبادل الموضعين في المصفوفة مباشرةً
+  const orderedIds = fields.map(f => f.id);
+  [orderedIds[idx], orderedIds[newIdx]] = [orderedIds[newIdx], orderedIds[idx]];
+
+  db.reorderFields(taskId, orderedIds);
   sendFieldsList(bot, chatId, taskId);
 }
 
