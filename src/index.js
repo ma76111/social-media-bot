@@ -274,6 +274,7 @@ bot.onText(/\/cancel/, (msg) => {
   userHandler.clearSession(userId);
   adminTasksH.clearSession(userId);
   adminSubsH.clearSession(userId);
+  adminAdminsH.clearSession(userId);
 
   bot.sendMessage(chatId,
     isAdmin(userId)

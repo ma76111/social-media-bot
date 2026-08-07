@@ -75,31 +75,9 @@ function parseCodeSpans(rawText) {
 // ─────────────────────────────────────────────
 //  Keyboards
 // ─────────────────────────────────────────────
-//  Keyboard Cache — لتجنب async delay عند التنقل
-// ─────────────────────────────────────────────
-const _kbCache = new Map(); // userId → { keyboard, lang, currency, taskHash }
-
-function _taskHash(tasks) {
-  return tasks.map(t => `${t.id}:${t.reward}:${t.isOpen}`).join('|');
-}
-
-/** امسح cache مستخدم واحد (عند تغيير الإعدادات) */
-function clearKbCache(userId) { _kbCache.delete(userId); }
-
-/** امسح cache كل المستخدمين (عند تغيير المهام) */
-function clearKbCacheAll() { _kbCache.clear(); }
-
 async function mainMenuKeyboardForUser(tasks = [], userId) {
   const lang     = getLang(userId);
   const currency = getCurrency(userId);
-  const hash     = _taskHash(tasks);
-
-  // إرجاع من الـ cache لو لم يتغير شيء
-  const cached = _kbCache.get(userId);
-  if (cached && cached.lang === lang && cached.currency === currency && cached.hash === hash) {
-    return cached.keyboard;
-  }
-
   const rows = await Promise.all(tasks.map(async tk => {
     const reward = db.getEffectiveReward(userId, tk);
     const { display, symbol } = await formatAmount(reward, currency);
@@ -107,8 +85,7 @@ async function mainMenuKeyboardForUser(tasks = [], userId) {
       text: `🟢 ${db.getTaskText(tk, 'name', lang)} — ${display} ${symbol}`,
     }];
   }));
-
-  const keyboard = {
+  return {
     reply_markup: {
       keyboard: [
         ...rows,
@@ -119,9 +96,6 @@ async function mainMenuKeyboardForUser(tasks = [], userId) {
       resize_keyboard: true,
     },
   };
-
-  _kbCache.set(userId, { lang, currency, hash, keyboard });
-  return keyboard;
 }
 
 async function mainMenuKeyboard(tasks = [], lang = 'ar', userId = null) {
@@ -816,10 +790,11 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
 
   const task = db.getTask(taskId);
   if (!task) {
+    // المهمة حُذفت بعد التسليم — التسليم محفوظ لكن لا يمكن الإشعار
     const tasks = db.listTasks(true);
     return bot.sendMessage(chatId, t('sub_success', lang, sub.id.substring(0, 8)), {
       parse_mode: 'Markdown',
-      ...await mainMenuKeyboardForUser(tasks, userId),
+      ...mainMenuKeyboardForUser(tasks, userId),
     });
   }
   const taskName = db.getTaskText(task, 'name', 'ar');
@@ -835,7 +810,7 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
     ).catch(() => {});
   }
 
-  // إشعار اقتراب الحد الأقصى
+  // إشعار اقتراب الحد الأقصى (لو تبقى تسليم واحد فقط)
   if (task?.maxPerUser) {
     const done      = db.countUserSubmissions(taskId, userId);
     const remaining = task.maxPerUser - done;
@@ -845,10 +820,9 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
   }
 
   const tasks = db.listTasks(true);
-  const kb    = await mainMenuKeyboardForUser(tasks, userId);
   bot.sendMessage(chatId, t('sub_success', lang, sub.id.substring(0, 8)), {
     parse_mode: 'Markdown',
-    ...kb,
+    ...await mainMenuKeyboardForUser(tasks, userId),
   });
 }
 
@@ -993,6 +967,5 @@ module.exports = {
   register, notifyUser, notifyApproved, notifyRejected,
   clearSession, sendHome, broadcastNewTask,
   getLang, getCurrency, mainMenuKeyboardForUser,
-  clearKbCache, clearKbCacheAll,
   _sendTaskDetailPreview,
 };

@@ -342,6 +342,14 @@ async function handleAdminText(bot, msg, adminId) {
   const chatId = msg.chat.id;
   const text   = msg.text?.trim();
 
+  if (flow === 'exp_n' && step === 'count') {
+    const n = parseInt(text);
+    if (isNaN(n) || n < 1) return bot.sendMessage(chatId, '⚠️ أدخل رقماً أكبر من 0.');
+    clearSession(adminId);
+    const result = exporter.exportUnexported(data.taskId, n);
+    return sendFileToAdmin(bot, chatId, result, `📤 تصدير ${n} تسليم`);
+  }
+
   if (flow === 'reject_one' && step === 'reason') {
     clearSession(adminId);
     return rejectOne(bot, chatId, adminId, data.taskId, data.subId, text || null);

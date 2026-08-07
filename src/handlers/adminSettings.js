@@ -268,6 +268,7 @@ function register(bot, isAdmin, mainKeyboard) {
     if (data === 'cfg_back') {
       await bot.answerCallbackQuery(query.id);
       clearSession(adminId);
+      sendSettingsMenu(bot, chatId);
       return;
     }
 

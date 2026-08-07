@@ -403,7 +403,6 @@ function register(bot, isAdmin) {
       return;
     }
 
-    // رجوع لاختيار الطريقة
     if (data === 'wd_back_method') {
       await bot.answerCallbackQuery(query.id);
       clearSession(userId);
@@ -411,7 +410,7 @@ function register(bot, isAdmin) {
       const currency = getCurrency(userId);
       const { display: bal, symbol } = await formatAmount(user.balance, currency);
       bot.sendMessage(chatId,
-        `${t('wd_choose_method', lang)}`,
+        `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}\n\n${t('wd_choose_method', lang)}`,
         { parse_mode: 'Markdown', reply_markup: methodKeyboard(lang) }
       );
       return;
