@@ -734,6 +734,8 @@ function register(bot, isAdmin) {
     // ── تأكيد قبول البيانات ──────────────────────
     if (data.startsWith('appdata_ok:')) {
       await bot.answerCallbackQuery(query.id);
+      const embeddedAdminId = parseInt(data.split(':')[1]);
+      if (embeddedAdminId !== adminId) return; // منع admin B من تنفيذ approval بتاع admin A
       const session = getSession(adminId);
       if (!session || session.flow !== 'approve_by_data') return;
       clearSession(adminId);
@@ -782,6 +784,8 @@ function register(bot, isAdmin) {
     // ── تأكيد رفض البيانات ───────────────────────
     if (data.startsWith('rejdata_ok:')) {
       await bot.answerCallbackQuery(query.id);
+      const embeddedAdminId = parseInt(data.split(':')[1]);
+      if (embeddedAdminId !== adminId) return; // منع admin B من تنفيذ rejection بتاع admin A
       const session = getSession(adminId);
       if (!session || session.flow !== 'reject_by_data') return;
       clearSession(adminId);

@@ -162,22 +162,6 @@ function confirmWdKeyboard(lang) {
   };
 }
 
-function wdAdminMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [
-        { text: '⏳ المعلقة',  callback_data: 'wda_list:pending:0'  },
-        { text: '✅ المقبولة', callback_data: 'wda_list:approved:0' },
-        { text: '❌ المرفوضة', callback_data: 'wda_list:rejected:0' },
-      ],
-      [
-        { text: '⚡ قبول الكل', callback_data: 'wda_bulk_approve' },
-        { text: '⚡ رفض الكل',  callback_data: 'wda_bulk_reject'  },
-      ],
-    ],
-  };
-}
-
 // ─────────────────────────────────────────────
 //  Keyboard قائمة الطلبات المعلقة
 //  يُستخدم في sendWdList و editWdPendingList
@@ -350,8 +334,12 @@ async function handleWithdrawText(bot, msg, userId) {
       return bot.sendMessage(chatId, t('wd_balance_changed', lang));
     }
     const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-    const wd = db.createWithdrawal({ userId, username, method, details, amount: amountEgp });
-    clearSession(userId);
+    const wd = await db.createWithdrawal({ userId, username, method, details, amount: amountEgp });
+    if (!wd) {
+      // race condition: الرصيد تغيّر بين الفحص والكتابة
+      clearSession(userId);
+      return bot.sendMessage(chatId, t('wd_balance_changed', lang));
+    }
     const cur = getCurrency(userId);
     const { display, symbol: sym } = await formatAmount(amountEgp, cur);
     bot.sendMessage(chatId,
@@ -498,7 +486,7 @@ async function handleWithdrawText(bot, msg, userId) {
   if (step === 'reject_reason') {
     const reason = (text === 'تخطي' || text === 'skip') ? null : text;
     clearSession(userId);
-    const wd = db.updateWithdrawalStatus(data.wdId, 'rejected', reason);
+    const wd = await db.updateWithdrawalStatus(data.wdId, 'rejected', reason);
     if (!wd) return bot.sendMessage(chatId, '⚠️ الطلب غير موجود.');
     bot.sendMessage(chatId, `❌ تم رفض الطلب \`${data.wdId.substring(0, 8)}\`.`, { parse_mode: 'Markdown' });
     await notifyUser(bot, wd.userId,
@@ -573,14 +561,64 @@ function register(bot, isAdmin) {
     sendWdAdminMenu(bot, msg.chat.id);
   });
 
-  // استقبال نصوص
+  // استقبال نصوص — يشمل بدء السحب من القائمة
   bot.on('message', async (msg) => {
     const userId = msg.from.id;
-    if (!getSession(userId)) return;
     if (!msg.text || msg.text.startsWith('/')) return;
-    if (/💳 سحب|💳 Withdraw|📤 طلبات السحب/i.test(msg.text)) return;
-    // فحص rate limit
-    if (!isAdmin(userId) && !rateLimiter.check(userId)) return;
+    if (isAdmin(userId)) return; // الأدمن مش يدخل في flow السحب
+    if (!rateLimiter.check(userId)) return;
+
+    const text = msg.text.trim();
+    const lang = getLang(userId);
+
+    // بدء السحب من زرار القائمة الرئيسية
+    if (/💳 سحب|💳 Withdraw/i.test(text)) {
+      // منع التكرار — لو في session نشط بأي step ما عدا select_method → تجاهل
+      const existingSess = getSession(userId);
+      if (existingSess) return;
+
+      const currency = getCurrency(userId);
+      const user     = db.getUser(userId);
+      const { display: bal, symbol } = await formatAmount(user.balance, currency);
+
+      if (user.balance <= 0) {
+        return bot.sendMessage(msg.chat.id, t('wd_zero_balance', lang, bal, symbol), { parse_mode: 'Markdown' });
+      }
+
+      const pendingWds = db.getUserWithdrawals(userId, 'pending');
+      if (pendingWds.length > 0) {
+        return bot.sendMessage(msg.chat.id,
+          lang === 'ar'
+            ? `⚠️ لديك طلب سحب معلق بالفعل (${pendingWds[0].amount} EGP).\n\nانتظر حتى تتم معالجته قبل إنشاء طلب جديد.`
+            : `⚠️ You already have a pending withdrawal (${pendingWds[0].amount} EGP).\n\nWait for it to be processed before creating a new one.`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      // نسجل session فوراً لمنع التكرار
+      setSession(userId, 'select_method', {});
+
+      const history = db.getUserWithdrawals(userId);
+      let historyText = '';
+      if (history.length > 0) {
+        const statusIcon = { pending: '⏳', approved: '✅', rejected: '❌' };
+        historyText = `\n\n📋 *${lang === 'ar' ? 'آخر سحوباتك:' : 'Recent withdrawals:'}*\n`;
+        for (const w of history.slice(0, 3)) {
+          const { display: wAmt, symbol: wSym } = await formatAmount(w.amount, currency);
+          historyText += `${statusIcon[w.status] || '•'} ${wAmt} ${wSym} — ${methodLabel(w.method, lang)} — ${w.createdAt.substring(0, 10)}\n`;
+        }
+      }
+
+      bot.sendMessage(msg.chat.id,
+        `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
+        { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
+      );
+      return;
+    }
+
+    // باقي خطوات السحب
+    if (!getSession(userId)) return;
+    if (/📤 طلبات السحب/i.test(text)) return;
     await handleWithdrawText(bot, msg, userId);
   });
 
@@ -658,7 +696,11 @@ function register(bot, isAdmin) {
         return bot.sendMessage(chatId, t('wd_balance_changed', lang));
       }
       const username = query.from.username ? `@${query.from.username}` : query.from.first_name;
-      const wd = db.createWithdrawal({ userId, username, method, details, amount: amountEgp });
+      const wd = await db.createWithdrawal({ userId, username, method, details, amount: amountEgp });
+      if (!wd) {
+        clearSession(userId);
+        return bot.sendMessage(chatId, t('wd_balance_changed', lang));
+      }
       clearSession(userId);
       const cur = getCurrency(userId);
       const { display, symbol } = await formatAmount(amountEgp, cur);
@@ -703,7 +745,7 @@ function register(bot, isAdmin) {
       const parts   = data.split(':');
       const wdId    = parts[1];
       const page    = parseInt(parts[2]) || 0;
-      const wd      = db.updateWithdrawalStatus(wdId, 'approved');
+      const wd = await db.updateWithdrawalStatus(wdId, 'approved');
       if (!wd) return bot.sendMessage(chatId, '⚠️ الطلب غير موجود أو تم معالجته مسبقاً.');
 
       // إشعار المستخدم بتأكيد الوصول
@@ -718,7 +760,7 @@ function register(bot, isAdmin) {
         `💰 المبلغ: *${display} ${symbol}*\n` +
         `💳 الطريقة: ${methodLabel(wd.method, userLang)}\n` +
         networkNote +
-        `📋 ${wd.details}\n\n` +
+        `📋 ${escMd(wd.details)}\n\n` +
         `✅ *تأكد من وصول المبلغ في محفظتك.*\n` +
         `📞 لو في أي مشكلة تواصل مع الدعم.`
       );
@@ -757,7 +799,7 @@ function register(bot, isAdmin) {
       const parts  = data.split(':');
       const wdId   = parts[1];
       const page   = parseInt(parts[2]) || 0;
-      const wd     = db.updateWithdrawalStatus(wdId, 'approved');
+      const wd     = await db.updateWithdrawalStatus(wdId, 'approved');
       if (!wd) return bot.sendMessage(chatId, '⚠️ الطلب غير موجود.');
       bot.sendMessage(chatId, `✅ تم قبول الطلب \`${wdId.substring(0, 8)}\`.`, { parse_mode: 'Markdown' });
       const userLang = getLang(wd.userId);
@@ -834,7 +876,7 @@ function register(bot, isAdmin) {
       const pending = db.getWithdrawals('pending');
       let done = 0;
       for (const wd of pending) {
-        const updated = db.updateWithdrawalStatus(wd.id, action === 'approve' ? 'approved' : 'rejected');
+        const updated = await db.updateWithdrawalStatus(wd.id, action === 'approve' ? 'approved' : 'rejected');
         if (updated) {
           done++;
           const uLang = getLang(wd.userId);

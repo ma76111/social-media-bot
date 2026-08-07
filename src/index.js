@@ -76,7 +76,9 @@ const CB_NAV_PREFIXES = [
   'task_cancel_detail',
   'adm_alt:',
   'cfg_menu',      'cfg_back',    'cfg_edit:',
-  'adm_preview:',  'adm_preview_lang:',  // معاينة المهمة
+  'adm_preview:',  'adm_preview_lang:',
+  // Admin management navigation — لا تحتاج lock
+  'admins_list',   'admins_back', 'admins_view:',
 ];
 
 function _isNavCb(data) {

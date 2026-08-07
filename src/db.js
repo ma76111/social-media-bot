@@ -43,24 +43,63 @@ function taskPath(taskId) {
   return path.join(TASKS_DIR, `${taskId}.json`);
 }
 
+// ─────────────────────────────────────────────
+//  Atomic write helper
+//  يكتب لملف مؤقت أولاً ثم يعمل rename
+//  يحمي من corruption لو مات البروسيس أثناء الكتابة
+// ─────────────────────────────────────────────
+function atomicWrite(filePath, data) {
+  const tmp = filePath + '.tmp';
+  fs.writeFileSync(tmp, data, 'utf8');
+  fs.renameSync(tmp, filePath);
+}
+
+// ─────────────────────────────────────────────
+//  Simple async mutex for balance-sensitive ops
+//  Node.js is single-threaded but async interleaving
+//  can cause read-modify-write races on the JSON files
+// ─────────────────────────────────────────────
+const _locks = new Map();
+
+async function withLock(key, fn) {
+  while (_locks.get(key)) {
+    await new Promise(r => setTimeout(r, 5));
+  }
+  _locks.set(key, true);
+  try {
+    return await fn();
+  } finally {
+    _locks.delete(key);
+  }
+}
+
 function loadTask(taskId) {
   const p = taskPath(taskId);
   if (!fs.existsSync(p)) return null;
-  return JSON.parse(fs.readFileSync(p, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    console.error(`[DB] Corrupted task file: ${p} — ${e.message}`);
+    return null;
+  }
 }
 
 function saveTask(task) {
-  fs.writeFileSync(taskPath(task.id), JSON.stringify(task, null, 2), 'utf8');
+  atomicWrite(taskPath(task.id), JSON.stringify(task, null, 2));
 }
 
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) return {};
-  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch (e) {
+    console.error(`[DB] Corrupted users file — ${e.message}`);
+    return {};
+  }
 }
 
 function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
-  // أفرغ الـ cache بعد الكتابة
+  atomicWrite(USERS_FILE, JSON.stringify(users, null, 2));
   _usersCache = null;
 }
 
@@ -559,10 +598,12 @@ const COUNTER_FILE = path.join(__dirname, '..', 'data', 'counter.json');
 
 function loadCounter() {
   if (!fs.existsSync(COUNTER_FILE)) return { nextUid: 1 };
-  return JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8'));
+  } catch { return { nextUid: 1 }; }
 }
 function saveCounter(c) {
-  fs.writeFileSync(COUNTER_FILE, JSON.stringify(c, null, 2), 'utf8');
+  atomicWrite(COUNTER_FILE, JSON.stringify(c, null, 2));
 }
 function nextUid() {
   const c = loadCounter();
@@ -631,7 +672,9 @@ function addBalance(userId, amount) {
   const users = loadUsersCached();
   const uid = String(userId);
   if (!users[uid]) getUser(userId);
-  users[uid].balance     = Math.round((users[uid].balance     + amount) * 10000) / 10000;
+  // حد أدنى: الرصيد لا يقل عن صفر عند الخصم التلقائي
+  const newBal = Math.round((users[uid].balance + amount) * 10000) / 10000;
+  users[uid].balance     = newBal;
   users[uid].totalEarned = Math.round((users[uid].totalEarned + (amount > 0 ? amount : 0)) * 10000) / 10000;
   saveUsers(users);
   return users[uid].balance;
@@ -716,6 +759,7 @@ const DEFAULT_SETTINGS = {
   botEnabled:      true,
   referralEnabled: false,
   referralReward:  0,
+  maintenanceMsg:  '',   // رسالة مخصصة لوضع الصيانة
 };
 
 let _settingsCache = null;
@@ -735,7 +779,7 @@ function loadSettings() {
 }
 
 function saveSettings(settings) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+  atomicWrite(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   _settingsCache = null;
 }
 
@@ -818,38 +862,52 @@ const WITHDRAWALS_FILE = path.join(__dirname, '..', 'data', 'withdrawals.json');
 
 function loadWithdrawals() {
   if (!fs.existsSync(WITHDRAWALS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(WITHDRAWALS_FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(WITHDRAWALS_FILE, 'utf8'));
+  } catch (e) {
+    console.error(`[DB] Corrupted withdrawals file — ${e.message}`);
+    return [];
+  }
 }
 
 function saveWithdrawals(list) {
-  fs.writeFileSync(WITHDRAWALS_FILE, JSON.stringify(list, null, 2), 'utf8');
+  atomicWrite(WITHDRAWALS_FILE, JSON.stringify(list, null, 2));
 }
 
-function createWithdrawal({ userId, username, method, details, amount }) {
-  const list = loadWithdrawals();
-  const req = {
-    id: uuidv4(),
-    userId,
-    username,
-    method,      // 'cash_eg' | 'binance' | 'usdt_trc20' | 'usdt_bep20'
-    details,     // رقم الهاتف | Binance ID | عنوان USDT
-    amount: Number(amount),
-    status: 'pending',
-    rejectReason: null,
-    createdAt: now(),
-    updatedAt: now(),
-  };
-  list.push(req);
-  saveWithdrawals(list);
+async function createWithdrawal({ userId, username, method, details, amount }) {
+  return withLock(`balance:${userId}`, () => {
+    // إعادة قراءة الرصيد من داخل الـ lock لضمان freshness
+    const users = loadUsers(); // قراءة مباشرة من disk
+    const uid = String(userId);
 
-  // خصم الرصيد فوراً (يُجمَّد) — نستخدم الـ cache
-  const users = loadUsersCached();
-  const uid = String(userId);
-  if (users[uid]) {
+    // تحقق مرة أخيرة من الرصيد داخل الـ lock
+    if (!users[uid] || users[uid].balance < amount) {
+      return null; // رصيد غير كافٍ — الـ handler سيتعامل مع null
+    }
+
+    const list = loadWithdrawals();
+    const req = {
+      id: uuidv4(),
+      userId,
+      username,
+      method,
+      details,
+      amount: Number(amount),
+      status: 'pending',
+      rejectReason: null,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    list.push(req);
+    saveWithdrawals(list);
+
+    // خصم الرصيد داخل نفس الـ lock
     users[uid].balance = Math.round((users[uid].balance - amount) * 10000) / 10000;
     saveUsers(users);
-  }
-  return req;
+    _usersCache = null; // invalidate cache بعد الكتابة المباشرة
+
+    return req;
+  });
 }
 
 function getWithdrawals(status = null) {
@@ -862,28 +920,34 @@ function getUserWithdrawals(userId, status = null) {
   return getWithdrawals(status).filter(w => w.userId === userId);
 }
 
-function updateWithdrawalStatus(id, newStatus, rejectReason = null) {
-  const list = loadWithdrawals();
-  const req  = list.find(w => w.id === id);
-  if (!req) return null;
+async function updateWithdrawalStatus(id, newStatus, rejectReason = null) {
+  return withLock(`wd:${id}`, () => {
+    const list = loadWithdrawals();
+    const req  = list.find(w => w.id === id);
+    if (!req) return null;
 
-  const old = req.status;
-  req.status    = newStatus;
-  req.updatedAt = now();
-  if (rejectReason !== null) req.rejectReason = rejectReason;
+    // منع re-approval: لو مش pending → لا تعدّل
+    if (newStatus === 'approved' && req.status !== 'pending') return null;
 
-  // لو رُفض → أعد الرصيد للمستخدم — نستخدم الـ cache
-  if (newStatus === 'rejected' && old === 'pending') {
-    const users = loadUsersCached();
-    const uid = String(req.userId);
-    if (users[uid]) {
-      users[uid].balance = Math.round((users[uid].balance + req.amount) * 10000) / 10000;
-      saveUsers(users);
+    const old = req.status;
+    req.status    = newStatus;
+    req.updatedAt = now();
+    if (rejectReason !== null) req.rejectReason = rejectReason;
+
+    // لو رُفض → أعد الرصيد للمستخدم (قراءة مباشرة من disk داخل الـ lock)
+    if (newStatus === 'rejected' && old === 'pending') {
+      const users = loadUsers();
+      const uid = String(req.userId);
+      if (users[uid]) {
+        users[uid].balance = Math.round((users[uid].balance + req.amount) * 10000) / 10000;
+        saveUsers(users);
+        _usersCache = null;
+      }
     }
-  }
 
-  saveWithdrawals(list);
-  return req;
+    saveWithdrawals(list);
+    return req;
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -917,4 +981,6 @@ module.exports = {
   getExtraAdmins, addExtraAdmin, removeExtraAdmin,
   // Withdrawals
   createWithdrawal, getWithdrawals, getUserWithdrawals, updateWithdrawalStatus,
+  // Lock utility (للاستخدام في handlers عند الحاجة)
+  withLock,
 };
