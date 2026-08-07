@@ -449,35 +449,40 @@ function register(bot, adminIds = []) {
     // إلغاء
     // لو المستخدم في session سحب → withdraw.js هيعالجه — نتجاهل هنا
     if (text === BTN_CANCEL_AR || text === BTN_CANCEL_EN) {
-      if (withdrawHandler.hasSession(userId)) return; // withdraw handler يعالجه
+      if (withdrawHandler.hasSession(userId)) return;
+      const lang = getLang(userId);
+      if (session && (session.step === 'filling' || session.step === 'confirming')) {
+        // في منتصف تسليم → نلغي ونرجع للقائمة
+        clearSession(userId);
+        delete _pendingStart[userId];
+        const tasks = db.listTasks(true);
+        return bot.sendMessage(msg.chat.id,
+          lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.',
+          await mainMenuKeyboardForUser(tasks, userId)
+        );
+      }
+      // مفيش session نشط → رسالة إلغاء بسيطة بدون تغيير القائمة
       clearSession(userId);
-      const lang  = getLang(userId);
-      const tasks = db.listTasks(true);
       return bot.sendMessage(msg.chat.id,
-        lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.',
-        await mainMenuKeyboardForUser(tasks, userId)
+        lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.'
       );
     }    if (text === BTN_BACK_AR || text === BTN_BACK_EN) {
       if (session && session.step === 'filling' && session.fieldIndex > 0) {
         const task   = db.getTask(session.taskId);
         const fields = [...task.fields].sort((a, b) => a.order - b.order);
 
-        // نرجع للحقل السابق وننظف إجابته
         session.fieldIndex--;
         let field = fields[session.fieldIndex];
 
-        // لو الحقل الحالي هو حقل ثاني مدموج (يوجد حقل قبله يشير إليه)
-        // نتخطاه للوراء خطوة تانية ونمسح إجابة الحقلين
         const isSecondaryMerged = fields.some(
           (f, i) => i < session.fieldIndex && f.mergedWith === field.id
         );
         if (isSecondaryMerged) {
-          delete session.answers[field.id];  // امسح الثاني
+          delete session.answers[field.id];
           session.fieldIndex--;
-          field = fields[session.fieldIndex]; // الحقل الأول المدموج
+          field = fields[session.fieldIndex];
         }
 
-        // امسح إجابة الحقل الأول + الحقل الثاني المدموج معه (لو موجود)
         delete session.answers[field.id];
         if (field.mergedWith) {
           delete session.answers[field.mergedWith];
@@ -485,12 +490,21 @@ function register(bot, adminIds = []) {
 
         return askField(bot, msg.chat.id, field, getLang(userId), session.fieldIndex === 0, task);
       }
+
+      // في أول حقل أو مفيش session → نلغي ونرجع لصفحة تفاصيل المهمة لو ممكن
+      const lang = getLang(userId);
+      if (session && session.taskId) {
+        const task = db.getTask(session.taskId);
+        clearSession(userId);
+        delete _pendingStart[userId];
+        if (task?.isOpen) {
+          await _sendTaskDetail(bot, msg.chat.id, task, userId);
+          return;
+        }
+      }
       clearSession(userId);
-      const lang  = getLang(userId);
-      const tasks = db.listTasks(true);
       return bot.sendMessage(msg.chat.id,
-        lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.',
-        await mainMenuKeyboardForUser(tasks, userId)
+        lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.'
       );
     }
 
