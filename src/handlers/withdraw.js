@@ -234,20 +234,48 @@ async function handleWithdrawText(bot, msg, userId) {
     return;
   }
 
-  // إدخال التفاصيل (رقم الهاتف أو Binance ID)
+  // إدخال التفاصيل (رقم الهاتف أو Binance ID أو عنوان USDT)
   if (step === 'details') {
     if (!text) return bot.sendMessage(chatId, '⚠️ ' + (lang === 'ar' ? 'أدخل البيانات.' : 'Enter valid data.'));
-    data.details = text;
 
+    // ── التحقق من الصيغة حسب الطريقة ──
+    const method = data.method;
+    let valid = true;
+
+    if (method === 'cash_eg') {
+      // رقم هاتف مصري: يبدأ بـ 01 و11 رقم، أو + والكود الدولي
+      valid = /^(\+20)?0?(10|11|12|15)\d{8}$/.test(text.replace(/\s/g, ''));
+    } else if (method === 'binance') {
+      // Binance ID: أرقام فقط، 6-12 رقم
+      valid = /^\d{6,12}$/.test(text.trim());
+    } else if (isUsdt(method)) {
+      // عنوان USDT TRC20: يبدأ بـ T و34 حرف
+      // عنوان USDT BEP20: يبدأ بـ 0x و42 حرف
+      if (method === 'usdt_trc20') {
+        valid = /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(text.trim());
+      } else {
+        valid = /^0x[0-9a-fA-F]{40}$/.test(text.trim());
+      }
+    }
+
+    if (!valid) {
+      return bot.sendMessage(chatId,
+        lang === 'ar'
+          ? '⚠️ البيانات المدخلة غير صحيحة، تأكد وأعد المحاولة.'
+          : '⚠️ Invalid data, please check and try again.',
+        { reply_markup: cancelReplyKeyboard(lang) }
+      );
+    }
+
+    data.details = text.trim();
     const user = db.getUser(userId);
-    // الرصيد بالعملة المختارة
     const { display: balDisplay, symbol, rate } = await formatAmount(user.balance, currency);
-    data._rate = rate;    // نحفظ السعر المستخدم
+    data._rate = rate;
 
     setSession(userId, 'amount', data);
     return bot.sendMessage(
       chatId,
-      `✅ \`${text}\`\n\n${t('wd_enter_amount', lang, balDisplay, symbol)}`,
+      `✅ \`${text.trim()}\`\n\n${t('wd_enter_amount', lang, balDisplay, symbol)}`,
       { parse_mode: 'Markdown', reply_markup: cancelReplyKeyboard(lang) }
     );
   }
