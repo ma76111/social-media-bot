@@ -766,12 +766,11 @@ let _settingsCache = null;
 
 function loadSettings() {
   if (!fs.existsSync(SETTINGS_FILE)) {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf8');
+    atomicWrite(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
     return { ...DEFAULT_SETTINGS };
   }
   try {
     const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-    // merge مع الافتراضي لضمان وجود كل الحقول
     return { ...DEFAULT_SETTINGS, ...raw };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -880,12 +879,20 @@ async function createWithdrawal({ userId, username, method, details, amount }) {
     const users = loadUsers(); // قراءة مباشرة من disk
     const uid = String(userId);
 
-    // تحقق مرة أخيرة من الرصيد داخل الـ lock
     if (!users[uid] || users[uid].balance < amount) {
-      return null; // رصيد غير كافٍ — الـ handler سيتعامل مع null
+      return null; // رصيد غير كافٍ
     }
 
-    const list = loadWithdrawals();
+    // داخل الـ lock: تحقق إن المستخدم مش عنده withdrawal معلق بالفعل
+    // هذا يمنع double-withdrawal حتى لو طلبين دخلوا في نفس الوقت
+    const existingList = loadWithdrawals();
+    const alreadyPending = existingList.some(
+      w => w.userId === userId && w.status === 'pending'
+    );
+    if (alreadyPending) {
+      return null; // لديه طلب معلق مسبقاً — رفض الطلب الثاني
+    }
+
     const req = {
       id: uuidv4(),
       userId,
@@ -898,13 +905,13 @@ async function createWithdrawal({ userId, username, method, details, amount }) {
       createdAt: now(),
       updatedAt: now(),
     };
-    list.push(req);
-    saveWithdrawals(list);
+    existingList.push(req);
+    saveWithdrawals(existingList);
 
     // خصم الرصيد داخل نفس الـ lock
     users[uid].balance = Math.round((users[uid].balance - amount) * 10000) / 10000;
     saveUsers(users);
-    _usersCache = null; // invalidate cache بعد الكتابة المباشرة
+    _usersCache = null;
 
     return req;
   });
