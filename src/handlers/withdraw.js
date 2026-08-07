@@ -63,8 +63,46 @@ function wdPendingRow(w, page) {
 }
 
 // ─────────────────────────────────────────────
-//  Reply keyboard للإلغاء — يظهر في القائمة السفلية
+//  Reply Keyboards للمستخدم
 // ─────────────────────────────────────────────
+
+// اختيار طريقة السحب
+function methodReplyKeyboard(lang) {
+  return {
+    keyboard: [
+      [{ text: methodLabel('cash_eg', lang) }, { text: methodLabel('binance', lang) }],
+      [{ text: '💎 USDT TRC20' }, { text: '💎 USDT BEP20' }],
+      [{ text: t('btn_cancel', lang) }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+// اختيار شبكة USDT
+function usdtNetReplyKeyboard(lang) {
+  return {
+    keyboard: [
+      [{ text: '💎 TRC20 (Tron)' }, { text: '💎 BEP20 (BSC)' }],
+      [{ text: lang === 'ar' ? '🔙 رجوع' : '🔙 Back' }, { text: t('btn_cancel', lang) }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+// تأكيد السحب
+function confirmReplyKeyboard(lang) {
+  return {
+    keyboard: [
+      [{ text: t('btn_confirm_wd', lang) }],
+      [{ text: t('btn_cancel', lang) }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
 function cancelReplyKeyboard(lang) {
   return {
     keyboard: [[{ text: t('btn_cancel', lang) }]],
@@ -73,9 +111,24 @@ function cancelReplyKeyboard(lang) {
   };
 }
 
-// ─────────────────────────────────────────────
-//  Keyboards
-// ─────────────────────────────────────────────
+// نصوص أزرار الطرق للتعرف عليها في message handler
+const METHOD_BTN_MAP = {
+  cash_eg:    { ar: '🏦 كاش مصري',  en: '🏦 Egyptian Cash' },
+  binance:    { ar: '🟡 Binance ID', en: '🟡 Binance ID'   },
+  usdt_trc20: { ar: '💎 USDT TRC20', en: '💎 USDT TRC20'   },
+  usdt_bep20: { ar: '💎 USDT BEP20', en: '💎 USDT BEP20'   },
+};
+// TRC20/BEP20 من شاشة الشبكة
+const USDT_NET_BTNS = ['💎 TRC20 (Tron)', '💎 BEP20 (BSC)'];
+
+function detectMethod(text) {
+  for (const [method, labels] of Object.entries(METHOD_BTN_MAP)) {
+    if (text === labels.ar || text === labels.en) return method;
+  }
+  if (text === '💎 TRC20 (Tron)') return 'usdt_trc20';
+  if (text === '💎 BEP20 (BSC)')  return 'usdt_bep20';
+  return null;
+}
 function methodKeyboard(lang) {
   return {
     inline_keyboard: [
@@ -215,7 +268,7 @@ async function sendWithdrawStart(bot, chatId, userId, lang) {
 
   bot.sendMessage(chatId,
     `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
-    { parse_mode: 'Markdown', reply_markup: methodKeyboard(lang) }
+    { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
   );
 }
 async function handleWithdrawText(bot, msg, userId) {
@@ -231,6 +284,96 @@ async function handleWithdrawText(bot, msg, userId) {
   if (text === t('btn_cancel', lang) || text === t('btn_cancel', 'ar') || text === t('btn_cancel', 'en')) {
     clearSession(userId);
     await sendWithdrawStart(bot, chatId, userId, lang);
+    return;
+  }
+
+  // رجوع من شاشة شبكة USDT أو شاشة التفاصيل
+  if (text === '🔙 رجوع' || text === '🔙 Back') {
+    clearSession(userId);
+    await sendWithdrawStart(bot, chatId, userId, lang);
+    return;
+  }
+
+  // اختيار الطريقة من reply keyboard (step: اختيار مبدئي)
+  if (!step || step === 'select_method') {
+    const chosenMethod = detectMethod(text);
+    if (chosenMethod) {
+      if (chosenMethod === 'usdt_trc20' || chosenMethod === 'usdt_bep20') {
+        // لو اختار USDT مباشرة → نخلي session step = select_network
+        setSession(userId, 'select_network', { method: chosenMethod });
+        const netName = chosenMethod === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)';
+        const hint = lang === 'ar'
+          ? `💎 *شبكة ${netName}*\n\nأرسل عنوان محفظة USDT الخاصة بك على شبكة ${netName}:\n\n⚠️ تأكد أن العنوان صحيح وعلى الشبكة الصحيحة — أي خطأ قد يؤدي لضياع الأموال.`
+          : `💎 *${netName} Network*\n\nSend your USDT wallet address on ${netName}:\n\n⚠️ Make sure the address is correct and on the right network.`;
+        setSession(userId, 'details', { method: chosenMethod });
+        return bot.sendMessage(chatId, hint, {
+          parse_mode: 'Markdown',
+          reply_markup: cancelReplyKeyboard(lang),
+        });
+      }
+      // cash_eg أو binance
+      const method = chosenMethod;
+      const hint = method === 'cash_eg' ? t('wd_enter_phone', lang) : t('wd_enter_binance', lang);
+      setSession(userId, 'details', { method });
+      return bot.sendMessage(chatId, hint, {
+        parse_mode: 'Markdown',
+        reply_markup: cancelReplyKeyboard(lang),
+      });
+    }
+    // لو مش طريقة معروفة ومش في step → تجاهل
+    if (!step) return;
+  }
+
+  // اختيار شبكة USDT من شاشة USDT (step = select_network)
+  if (step === 'select_network') {
+    let method = null;
+    if (text === '💎 TRC20 (Tron)') method = 'usdt_trc20';
+    if (text === '💎 BEP20 (BSC)')  method = 'usdt_bep20';
+    if (!method) return; // تجاهل أي نص آخر
+    const netName = method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)';
+    const hint = lang === 'ar'
+      ? `💎 *شبكة ${netName}*\n\nأرسل عنوان محفظة USDT:\n\n⚠️ تأكد من صحة العنوان والشبكة.`
+      : `💎 *${netName} Network*\n\nSend your USDT wallet address:\n\n⚠️ Make sure the address and network are correct.`;
+    setSession(userId, 'details', { method });
+    return bot.sendMessage(chatId, hint, {
+      parse_mode: 'Markdown',
+      reply_markup: cancelReplyKeyboard(lang),
+    });
+  }
+
+  // تأكيد من reply keyboard
+  if (step === 'confirm' && (text === t('btn_confirm_wd', lang) || text === t('btn_confirm_wd', 'ar') || text === t('btn_confirm_wd', 'en'))) {
+    const { method, details, amountEgp } = data;
+    const userObj = db.getUser(userId);
+    if (amountEgp > userObj.balance) {
+      clearSession(userId);
+      return bot.sendMessage(chatId, t('wd_balance_changed', lang));
+    }
+    const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+    const wd = db.createWithdrawal({ userId, username, method, details, amount: amountEgp });
+    clearSession(userId);
+    const cur = getCurrency(userId);
+    const { display, symbol: sym } = await formatAmount(amountEgp, cur);
+    bot.sendMessage(chatId,
+      t('wd_success', lang, wd.id.substring(0, 8), methodLabel(method, lang), display, sym),
+      { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } }
+    );
+    // إشعار الأدمنز
+    const ADMIN_IDS_ENV = (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+    const networkNote2 = isUsdt(method) ? `🌐 الشبكة: *${method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n` : '';
+    for (const adminId of ADMIN_IDS_ENV) {
+      bot.sendMessage(adminId,
+        `💳 *طلب سحب جديد!*\n\n` +
+        `👤 المستخدم: ${escMd(username)}\n` +
+        `🆔 \`${userId}\`\n` +
+        `💰 المبلغ: *${display} ${sym}*\n` +
+        `💳 الطريقة: ${methodLabel(method, 'ar')}\n` +
+        networkNote2 +
+        `📋 ${isUsdt(method) ? 'العنوان' : 'التفاصيل'}: \`${escMd(details)}\`\n` +
+        `📅 ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📤 طلبات السحب', callback_data: 'wda_list:pending:0' }]] } }
+      ).catch(() => {});
+    }
     return;
   }
 
@@ -347,7 +490,7 @@ async function handleWithdrawText(bot, msg, userId) {
 
     return bot.sendMessage(chatId, summary, {
       parse_mode: 'Markdown',
-      reply_markup: confirmWdKeyboard(lang),  // inline فقط — نشيل reply keyboard
+      reply_markup: confirmReplyKeyboard(lang),
     });
   }
 
@@ -396,6 +539,7 @@ function register(bot, isAdmin) {
       );
     }
     clearSession(userId);
+    setSession(userId, 'select_method', {});
 
     // عرض تاريخ السحوبات السابقة (آخر 3)
     const history = db.getUserWithdrawals(userId);
@@ -412,7 +556,13 @@ function register(bot, isAdmin) {
     bot.sendMessage(
       msg.chat.id,
       `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
-      { parse_mode: 'Markdown', reply_markup: methodKeyboard(lang) }
+      { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
+    );
+
+    bot.sendMessage(
+      msg.chat.id,
+      `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
+      { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
     );
   });
 
@@ -494,55 +644,27 @@ function register(bot, isAdmin) {
       return;
     }
 
-    // تأكيد
+    // تأكيد من inline (للتوافق مع رسائل قديمة فقط)
     if (data === 'wd_confirm') {
       await bot.answerCallbackQuery(query.id);
+      // التأكيد بقى من reply keyboard — هذا callback للتوافق فقط
       const session = getSession(userId);
       if (!session || session.step !== 'confirm') return;
-      const { method, details, amountEgp, _rate } = session.data;
-      const currency = getCurrency(userId);
-
-      const user = db.getUser(userId);
-      if (amountEgp > user.balance) {
+      const { method, details, amountEgp } = session.data;
+      const userObj = db.getUser(userId);
+      if (amountEgp > userObj.balance) {
         clearSession(userId);
         return bot.sendMessage(chatId, t('wd_balance_changed', lang));
       }
-
       const username = query.from.username ? `@${query.from.username}` : query.from.first_name;
       const wd = db.createWithdrawal({ userId, username, method, details, amount: amountEgp });
       clearSession(userId);
-
-      const { display, symbol } = await formatAmount(amountEgp, currency);
+      const cur = getCurrency(userId);
+      const { display, symbol } = await formatAmount(amountEgp, cur);
       bot.sendMessage(chatId,
         t('wd_success', lang, wd.id.substring(0, 8), methodLabel(method, lang), display, symbol),
         { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } }
       );
-
-      // إشعار الأدمنز بطلب السحب الجديد
-      const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-      const networkNote = isUsdt(method)
-        ? `🌐 الشبكة: *${method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n`
-        : '';
-      for (const adminId of ADMIN_IDS) {
-        bot.sendMessage(adminId,
-          `💳 *طلب سحب جديد!*\n\n` +
-          `👤 المستخدم: ${escMd(username)}\n` +
-          `🆔 \`${userId}\`\n` +
-          `💰 المبلغ: *${display} ${symbol}*\n` +
-          `💳 الطريقة: ${methodLabel(method, 'ar')}\n` +
-          networkNote +
-          `📋 ${isUsdt(method) ? 'العنوان' : 'التفاصيل'}: \`${escMd(details)}\`\n` +
-          `📅 ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [[
-                { text: '📤 طلبات السحب', callback_data: 'wda_list:pending:0' },
-              ]],
-            },
-          }
-        ).catch(() => {});
-      }
       return;
     }
 

@@ -315,6 +315,14 @@ function allMenuTexts() {
   s.add(t('btn_start_task','ar')); s.add(t('btn_start_task','en'));
   s.add(BTN_CANCEL_AR); s.add(BTN_CANCEL_EN);
   s.add(BTN_BACK_AR);   s.add(BTN_BACK_EN);
+  // أزرار السحب الجديدة (reply keyboard)
+  s.add('🏦 كاش مصري'); s.add('🏦 Egyptian Cash');
+  s.add('🟡 Binance ID');
+  s.add('💎 USDT TRC20'); s.add('💎 USDT BEP20');
+  s.add('💎 TRC20 (Tron)'); s.add('💎 BEP20 (BSC)');
+  s.add('💎 USDT (TRC20 / BEP20)');
+  s.add('✅ تأكيد الطلب'); s.add('✅ Confirm Request');
+  s.add('🔙 رجوع'); s.add('🔙 Back');
   return s;
 }
 const MENU_TEXTS = allMenuTexts();
