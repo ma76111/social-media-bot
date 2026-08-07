@@ -531,6 +531,8 @@ async function sendHome(bot, chatId, userId, firstName) {
   const text  = tasks.length === 0
     ? `👋 *${safe}*\n\n${t('home_no_tasks', lang)}`
     : t('home_greeting', lang, safe);
+  // typing indicator أثناء جلب الأسعار
+  bot.sendChatAction(chatId, 'typing').catch(() => {});
   bot.sendMessage(chatId, text, {
     parse_mode: 'Markdown',
     ...await mainMenuKeyboardForUser(tasks, userId),
@@ -643,6 +645,19 @@ async function startTask(bot, chatId, userId, taskId, lang) {
     if (db.countUserSubmissions(taskId, userId) >= task.maxPerUser)
       return bot.sendMessage(chatId, t('task_max_reached', lang, task.maxPerUser));
   }
+
+  // لو في session جارٍ لمهمة مختلفة → نلغيه ونبدأ الجديدة مباشرة
+  const existing = sessions[userId];
+  if (existing && existing.step === 'filling' && existing.taskId !== taskId) {
+    clearSession(userId);
+    // إشعار بسيط بالإلغاء
+    await bot.sendMessage(chatId,
+      lang === 'ar'
+        ? '↩️ تم إلغاء المهمة السابقة، جاري بدء المهمة الجديدة...'
+        : '↩️ Previous task cancelled, starting new task...'
+    );
+  }
+
   const fields = [...task.fields].sort((a, b) => a.order - b.order);
   sessions[userId] = { step: 'filling', taskId, fieldIndex: 0, answers: {} };
   await askField(bot, chatId, fields[0], lang, true, task);
@@ -811,7 +826,14 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
       `📌 المهمة: *${escMd(taskName)}*\n` +
       `👤 المستخدم: ${escMd(username)}\n` +
       `🆔 \`${sub.id.substring(0, 8)}\``,
-      { parse_mode: 'Markdown' }
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '👁 عرض التسليم', callback_data: `sub_detail:${taskId.substring(0,8)}:${sub.id.substring(0,8)}` },
+          ]],
+        },
+      }
     ).catch(() => {});
   }
 

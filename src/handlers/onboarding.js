@@ -210,6 +210,8 @@ function register(bot, onDone) {
       db.updateUserSettings(userId, { currency });
       await bot.sendMessage(msg.chat.id, t('settings_saved', lang), { parse_mode: 'Markdown' });
       sendSettingsPage(bot, msg.chat.id, userId);
+      // تحديث القائمة الرئيسية بالأسعار الجديدة
+      if (typeof onDone === 'function') onDone(bot, msg.chat.id, userId, msg.from.first_name);
       return;
     }
   });

@@ -239,15 +239,14 @@ async function approveOne(bot, chatId, taskId, subId) {
   if (!sub) return bot.sendMessage(chatId, '⚠️ التسليم غير موجود.');
 
   // ── إلغاء كل التسليمات المعلقة لنفس المستخدم في كل المهام ──
-  // (لمنع التكرار — الشخص نجح في تسليم واحد فتُرفض الباقية تلقائياً)
   const allPending = db.getAllPendingForUser(sub.userId);
   let cancelledCount = 0;
+  const approvedTaskName = db.getTaskText(task, 'name', 'ar');
   for (const { taskId: tid, sub: pendingSub } of allPending) {
-    if (pendingSub.id === subId) continue; // التسليم الحالي تم قبوله بالفعل
-    db.updateSubmissionStatus(tid, pendingSub.id, 'rejected', 'تم قبول تسليم سابق لك');
-    await notifyRejected(bot, pendingSub, db.getTask(tid),
-      'تم قبول تسليم سابق لك — لا يمكن قبول أكثر من تسليم واحد'
-    );
+    if (pendingSub.id === subId) continue;
+    const reason = `تم قبول تسليمك في مهمة "${approvedTaskName}" — لا يمكن قبول أكثر من تسليم واحد`;
+    db.updateSubmissionStatus(tid, pendingSub.id, 'rejected', reason);
+    await notifyRejected(bot, pendingSub, db.getTask(tid), reason);
     db.deleteSubmission(tid, pendingSub.id);
     cancelledCount++;
   }
@@ -303,12 +302,14 @@ async function executeSelectiveAction(bot, chatId, taskId, ids, action, reason) 
       await notifyApproved(bot, sub, task);
 
       const allPending = db.getAllPendingForUser(sub.userId);
+      const approvedTaskName = db.getTaskText(task, 'name', 'ar');
       for (const { taskId: tid, sub: ps } of allPending) {
         if (idsSet.has(ps.id)) continue; // ضمن الدفعة — سيُتخطى بـ processedUsers
         const stillExists = db.getSubmission(tid, ps.id);
         if (!stillExists) continue;
-        db.updateSubmissionStatus(tid, ps.id, 'rejected', 'تم قبول تسليم سابق لك');
-        await notifyRejected(bot, ps, db.getTask(tid), 'تم قبول تسليم سابق لك');
+        const reason = `تم قبول تسليمك في مهمة "${approvedTaskName}" — لا يمكن قبول أكثر من تسليم واحد`;
+        db.updateSubmissionStatus(tid, ps.id, 'rejected', reason);
+        await notifyRejected(bot, ps, db.getTask(tid), reason);
         db.deleteSubmission(tid, ps.id);
         totalCancelled++;
       }
@@ -751,13 +752,15 @@ function register(bot, isAdmin) {
         await notifyApproved(bot, sub, taskObj);
         if (!processedUsers.has(sub.userId)) {
           processedUsers.add(sub.userId);
+          const approvedTaskName = db.getTaskText(taskObj, 'name', 'ar');
           const allPending = db.getAllPendingForUser(sub.userId);
           for (const { taskId: tid, sub: ps } of allPending) {
             if (ids.includes(ps.id)) continue;
             const stillExists = db.getSubmission(tid, ps.id);
             if (!stillExists) continue;
-            db.updateSubmissionStatus(tid, ps.id, 'rejected', 'تم قبول تسليم سابق لك');
-            await notifyRejected(bot, ps, db.getTask(tid), 'تم قبول تسليم سابق لك');
+            const reason = `تم قبول تسليمك في مهمة "${approvedTaskName}" — لا يمكن قبول أكثر من تسليم واحد`;
+            db.updateSubmissionStatus(tid, ps.id, 'rejected', reason);
+            await notifyRejected(bot, ps, db.getTask(tid), reason);
             db.deleteSubmission(tid, ps.id);
             totalCancelled++;
           }
