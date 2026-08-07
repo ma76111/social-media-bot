@@ -71,6 +71,8 @@ function parseCodeSpans(rawText) {
   return { text: clean, entities };
 }
 
+const withdrawHandler = require('./withdraw');
+
 // ─────────────────────────────────────────────
 //  Keyboards
 // ─────────────────────────────────────────────
@@ -399,7 +401,9 @@ function register(bot, adminIds = []) {
       await bot.answerCallbackQuery(query.id);
       clearSession(userId);
       delete _pendingStart[userId];
-      bot.sendMessage(chatId, t('cancel_msg', lang));
+      const tasks = db.listTasks(true);
+      bot.sendMessage(chatId, t('cancel_msg', lang),
+        await mainMenuKeyboardForUser(tasks, userId));
       return;
     }
     if (data === 'field_skip') {
@@ -443,7 +447,9 @@ function register(bot, adminIds = []) {
     }
 
     // إلغاء
+    // لو المستخدم في session سحب → withdraw.js هيعالجه — نتجاهل هنا
     if (text === BTN_CANCEL_AR || text === BTN_CANCEL_EN) {
+      if (withdrawHandler.hasSession(userId)) return; // withdraw handler يعالجه
       clearSession(userId);
       const lang  = getLang(userId);
       const tasks = db.listTasks(true);
@@ -452,7 +458,6 @@ function register(bot, adminIds = []) {
         await mainMenuKeyboardForUser(tasks, userId)
       );
     }
-
     if (text === BTN_BACK_AR || text === BTN_BACK_EN) {
       if (session && session.step === 'filling' && session.fieldIndex > 0) {
         const task   = db.getTask(session.taskId);

@@ -92,7 +92,10 @@ function usdtNetKeyboard(lang) {
     inline_keyboard: [
       [{ text: '💎 TRC20 (Tron)', callback_data: 'wd_method:usdt_trc20' }],
       [{ text: '💎 BEP20 (BSC)',  callback_data: 'wd_method:usdt_bep20' }],
-      [{ text: lang === 'ar' ? '🔙 رجوع' : '🔙 Back', callback_data: 'wd_back_method' }],
+      [
+        { text: lang === 'ar' ? '🔙 رجوع' : '🔙 Back', callback_data: 'wd_back_method' },
+        { text: t('btn_cancel', lang), callback_data: 'wd_cancel' },
+      ],
     ],
   };
 }
@@ -437,10 +440,14 @@ function register(bot, isAdmin) {
     // اختيار شبكة USDT
     if (data === 'wd_usdt_net') {
       await bot.answerCallbackQuery(query.id);
-      const msg = lang === 'ar'
+      const usdtMsg = lang === 'ar'
         ? '💎 *اختر شبكة USDT:*\n\n• *TRC20* — شبكة Tron (رسوم أقل)\n• *BEP20* — شبكة BSC (Binance Smart Chain)'
         : '💎 *Select USDT network:*\n\n• *TRC20* — Tron network (lower fees)\n• *BEP20* — BSC (Binance Smart Chain)';
-      bot.sendMessage(chatId, msg, { parse_mode: 'Markdown', reply_markup: usdtNetKeyboard(lang) });
+      // نضيف cancelReplyKeyboard هنا أيضاً
+      bot.sendMessage(chatId, usdtMsg, {
+        parse_mode: 'Markdown',
+        reply_markup: usdtNetKeyboard(lang),
+      });
       return;
     }
 
@@ -795,4 +802,4 @@ async function sendWdDetail(bot, chatId, wdId, backStatus = 'pending', backPage 
   });
 }
 
-module.exports = { register };
+module.exports = { register, hasSession: (id) => !!sessions[id] };
