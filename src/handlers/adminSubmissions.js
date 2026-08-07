@@ -3,6 +3,7 @@
 const db       = require('../db');
 const exporter = require('../exporter');
 const { notifyUser, notifyApproved, notifyRejected } = require('./user');
+const { escMd } = require('../utils/escMd');
 const sessions = {};
 function setSession(a, f, s, d = {}) { sessions[a] = { flow: f, step: s, data: d }; }
 function getSession(a) { return sessions[a] || null; }
@@ -25,7 +26,7 @@ function subsMenuKeyboard(taskId) {
   return {
     inline_keyboard: [
       [
-        { text: '📤 تصدير كل التسليمات',   callback_data: `exp_all:${s}`      },
+        { text: '📤 تصدير غير المصدَّرة',    callback_data: `exp_all:${s}`      },
         { text: '📤 تصدير عدد محدد',        callback_data: `exp_n:${s}`        },
       ],
       [
@@ -41,26 +42,11 @@ function subsMenuKeyboard(taskId) {
         { text: '👁 عرض التسليمات',          callback_data: `subs_list:${s}:all` },
       ],
       [
-        { text: '⚡ عمليات جماعية',          callback_data: `subs_bulk_menu:${s}` },
-        { text: '🔙 رجوع',                   callback_data: `adm_task:${s}`       },
-      ],
-    ],
-  };
-}
-
-function bulkMenuKeyboard(taskId) {
-  const s = sh(taskId);
-  return {
-    inline_keyboard: [
-      [
-        { text: '✅ قبول جماعي', callback_data: `bulk_approve:${s}` },
-        { text: '❌ رفض جماعي',  callback_data: `bulk_reject:${s}`  },
-      ],
-      [
-        { text: '🎯 انتقائي بـ IDs',    callback_data: `selective_ids:${s}`   },
         { text: '🎯 انتقائي بالأسماء', callback_data: `selective_names:${s}` },
       ],
-      [{ text: '🔙 رجوع', callback_data: `adm_subs:${s}` }],
+      [
+        { text: '🔙 رجوع', callback_data: `adm_task:${s}` },
+      ],
     ],
   };
 }
@@ -108,10 +94,15 @@ function subDetailKeyboard(taskId, subId, status, exported) {
 function selectiveActionKeyboard(taskId) {
   const s = sh(taskId);
   return {
-    inline_keyboard: [[
-      { text: '✅ قبول', callback_data: `sel_do:${s}:approve` },
-      { text: '❌ رفض',  callback_data: `sel_do:${s}:reject`  },
-    ]],
+    inline_keyboard: [
+      [
+        { text: '✅ قبول', callback_data: `sel_do:${s}:approve` },
+        { text: '❌ رفض',  callback_data: `sel_do:${s}:reject`  },
+      ],
+      [
+        { text: '🔙 رجوع', callback_data: `adm_subs:${s}` },
+      ],
+    ],
   };
 }
 
@@ -132,16 +123,23 @@ function getFields(task) {
 function formatSubText(sub, fields) {
   const expLabel = sub.exported === 1 ? '📤 مصدَّر' : '📦 غير مصدَّر';
   let text = `🆔 \`${sub.id.substring(0,8)}\`\n`;
-  text += `👤 ${sub.username}  |  \`${sub.userId}\`\n`;
+  text += `👤 ${escMd(sub.username)}  |  \`${sub.userId}\`\n`;
   text += `📅 ${sub.submittedAt}\n`;
   text += `📌 الحالة: ${STATUS_LABELS[sub.status] || sub.status}  ${expLabel}\n`;
-  if (sub.rejectReason) text += `📝 سبب الرفض: ${sub.rejectReason}\n`;
+  if (sub.rejectReason) text += `📝 سبب الرفض: ${escMd(sub.rejectReason)}\n`;
   text += '\n';
   for (const field of fields) {
     const val = sub.data[field.id];
     if (val) {
-      const display = (field.type === 'image' || field.type === 'file') ? '✅ مرفوع' : val;
-      text += `• *${field.label}:* ${display}\n`;
+      const labelText = typeof field.label === 'object' ? (field.label.ar || '') : (field.label || '');
+      let display;
+      if (field.type === 'image' || field.type === 'file') {
+        display = '✅ مرفوع';
+      } else {
+        const valStr = String(val);
+        display = valStr.startsWith('`') ? valStr : `\`${escMd(valStr)}\``;
+      }
+      text += `• *${escMd(labelText)}:* ${display}\n`;
     }
   }
   return text;
@@ -174,7 +172,7 @@ function sendSubsList(bot, chatId, taskId, statusFilter) {
       { reply_markup: subsMenuKeyboard(taskId) });
   }
 
-  bot.sendMessage(chatId,
+  return bot.sendMessage(chatId,
     `📊 *${label}*\n📦 العدد: *${subs.length}* تسليم`,
     {
       parse_mode: 'Markdown',
@@ -193,6 +191,12 @@ function sendSubsPage(bot, chatId, taskId, statusFilter, page) {
   const subs   = db.getSubmissions(taskId, filter);
   const ts     = sh(taskId);
   const PAGE   = 10;
+
+  if (subs.length === 0) {
+    return bot.sendMessage(chatId, '📭 لا توجد تسليمات.',
+      { reply_markup: { inline_keyboard: [[{ text: '🔙 رجوع', callback_data: `adm_subs:${ts}` }]] } });
+  }
+
   const total  = Math.ceil(subs.length / PAGE);
   const slice  = subs.slice(page * PAGE, (page + 1) * PAGE);
 
@@ -230,20 +234,40 @@ function sendSubDetail(bot, chatId, taskId, subId) {
 
 async function approveOne(bot, chatId, taskId, subId) {
   const task = db.getTask(taskId);
+  if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
   const sub  = db.updateSubmissionStatus(taskId, subId, 'approved');
   if (!sub) return bot.sendMessage(chatId, '⚠️ التسليم غير موجود.');
+
+  // ── إلغاء كل التسليمات المعلقة لنفس المستخدم في كل المهام ──
+  // (لمنع التكرار — الشخص نجح في تسليم واحد فتُرفض الباقية تلقائياً)
+  const allPending = db.getAllPendingForUser(sub.userId);
+  let cancelledCount = 0;
+  for (const { taskId: tid, sub: pendingSub } of allPending) {
+    if (pendingSub.id === subId) continue; // التسليم الحالي تم قبوله بالفعل
+    db.updateSubmissionStatus(tid, pendingSub.id, 'rejected', 'تم قبول تسليم سابق لك');
+    await notifyRejected(bot, pendingSub, db.getTask(tid),
+      'تم قبول تسليم سابق لك — لا يمكن قبول أكثر من تسليم واحد'
+    );
+    db.deleteSubmission(tid, pendingSub.id);
+    cancelledCount++;
+  }
+
   // استخدام المكافأة الفعلية (تأخذ rewardOverride بعين الاعتبار)
   const reward = db.getEffectiveReward(sub.userId, task);
   db.addBalance(sub.userId, reward);
   await notifyApproved(bot, sub, task);
-  db.deleteSubmission(taskId, subId);   // ← حذف بعد القبول
-  bot.sendMessage(chatId,
-    `✅ تم قبول التسليم \`${subId.substring(0,8)}\` وإضافة \`${reward}\` للمستخدم.\n🗑 تم حذف التسليم من البيانات.`,
-    { parse_mode: 'Markdown', reply_markup: subsMenuKeyboard(taskId) });
+  db.deleteSubmission(taskId, subId);
+
+  let msg = `✅ تم قبول التسليم \`${subId.substring(0,8)}\` وإضافة \`${reward}\` للمستخدم.`;
+  if (cancelledCount > 0)
+    msg += `\n⚠️ تم إلغاء *${cancelledCount}* تسليم معلق آخر لنفس المستخدم تلقائياً.`;
+
+  bot.sendMessage(chatId, msg, { parse_mode: 'Markdown', reply_markup: subsMenuKeyboard(taskId) });
 }
 
 async function rejectOne(bot, chatId, adminId, taskId, subId, reason) {
   const task = db.getTask(taskId);
+  if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
   const sub  = db.updateSubmissionStatus(taskId, subId, 'rejected', reason);
   if (!sub) return bot.sendMessage(chatId, '⚠️ التسليم غير موجود.');
   await notifyRejected(bot, sub, task, reason);
@@ -257,51 +281,43 @@ async function rejectOne(bot, chatId, adminId, taskId, subId, reason) {
 //  Bulk Actions
 // ─────────────────────────────────────────────
 
-async function executeBulkApprove(bot, chatId, taskId, limit) {
-  const task    = db.getTask(taskId);
-  const pending = db.getSubmissions(taskId, 'pending');
-  const targets = limit ? pending.slice(0, limit) : pending;
-  if (!targets.length) return bot.sendMessage(chatId, '📭 لا توجد تسليمات في الانتظار.');
-  for (const sub of targets) {
-    db.updateSubmissionStatus(taskId, sub.id, 'approved');
-    const reward = db.getEffectiveReward(sub.userId, task);
-    db.addBalance(sub.userId, reward);
-    await notifyApproved(bot, sub, task);
-  }
-  db.bulkDeleteSubmissions(taskId, targets.map(s => s.id));
-  bot.sendMessage(chatId,
-    `✅ تم قبول وحذف *${targets.length}* تسليماً وإضافة المكافآت.`,
-    { parse_mode: 'Markdown' });
-}
-
-async function executeBulkReject(bot, chatId, taskId, limit, reason) {
-  const task    = db.getTask(taskId);
-  const pending = db.getSubmissions(taskId, 'pending');
-  const targets = limit ? pending.slice(0, limit) : pending;
-  if (!targets.length) return bot.sendMessage(chatId, '📭 لا توجد تسليمات في الانتظار.');
-  for (const sub of targets) {
-    db.updateSubmissionStatus(taskId, sub.id, 'rejected', reason);
-    await notifyRejected(bot, sub, task, reason);
-  }
-  db.bulkDeleteSubmissions(taskId, targets.map(s => s.id));
-  bot.sendMessage(chatId,
-    `❌ تم رفض وحذف *${targets.length}* تسليماً.`,
-    { parse_mode: 'Markdown' });
-}
-
 async function executeSelectiveAction(bot, chatId, taskId, ids, action, reason) {
   const task = db.getTask(taskId);
+  if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
   if (action === 'approve') {
+    const processedUsers = new Set();
+    const idsSet = new Set(ids); // للبحث السريع
+    let totalCancelled = 0;
     for (const id of ids) {
+      // قد يكون حُذف تلقائياً (مستخدم بتسليمين في ids وأُلغي الثاني)
       const sub = db.getSubmission(taskId, id);
       if (!sub) continue;
+
+      // لو المستخدم سبق ومُعولج (له تسليم آخر في ids قُبل قبله) → تخطى
+      if (processedUsers.has(sub.userId)) continue;
+      processedUsers.add(sub.userId);
+
       db.updateSubmissionStatus(taskId, id, 'approved');
       const reward = db.getEffectiveReward(sub.userId, task);
       db.addBalance(sub.userId, reward);
       await notifyApproved(bot, sub, task);
+
+      const allPending = db.getAllPendingForUser(sub.userId);
+      for (const { taskId: tid, sub: ps } of allPending) {
+        if (idsSet.has(ps.id)) continue; // ضمن الدفعة — سيُتخطى بـ processedUsers
+        const stillExists = db.getSubmission(tid, ps.id);
+        if (!stillExists) continue;
+        db.updateSubmissionStatus(tid, ps.id, 'rejected', 'تم قبول تسليم سابق لك');
+        await notifyRejected(bot, ps, db.getTask(tid), 'تم قبول تسليم سابق لك');
+        db.deleteSubmission(tid, ps.id);
+        totalCancelled++;
+      }
     }
     db.bulkDeleteSubmissions(taskId, ids);
-    return bot.sendMessage(chatId, `✅ تم قبول وحذف *${ids.length}* تسليماً.`, { parse_mode: 'Markdown' });
+    let msg = `✅ تم قبول وحذف *${ids.length}* تسليماً.`;
+    if (totalCancelled > 0)
+      msg += `\n⚠️ تم إلغاء *${totalCancelled}* تسليم معلق آخر تلقائياً.`;
+    return bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
   }
   if (action === 'reject') {
     for (const id of ids) {
@@ -331,37 +347,95 @@ async function handleAdminText(bot, msg, adminId) {
     return rejectOne(bot, chatId, adminId, data.taskId, data.subId, text || null);
   }
 
-  if (flow === 'bulk_reject' && step === 'reason') {
-    const reason = (text === 'تخطي' || text === 'skip') ? null : text;
-    const count  = db.getSubmissions(data.taskId, 'pending').length;
-    setSession(adminId, 'bulk_reject', 'confirm', { ...data, reason });
+  if (flow === 'approve_by_data' && step === 'waiting') {
+    clearSession(adminId);
+    if (text === '❌ إلغاء') return bot.sendMessage(chatId, '❌ تم الإلغاء.');
+    const taskObj = db.getTask(data.taskId);
+    const flds    = taskObj ? [...taskObj.fields].sort((a,b) => a.order - b.order) : [];
+    const pending = db.getSubmissions(data.taskId, 'pending');
+
+    // "الكل" → قبول جميع المعلقة
+    let matched = [];
+    if (text.trim() === 'الكل') {
+      matched = pending;
+    } else {
+      // مطابقة البيانات — كل سطر تسليم
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        const vals  = line.split(':');
+        const found = pending.find(s =>
+          !matched.find(m => m.id === s.id) &&
+          flds.filter(f => f.type !== 'image' && f.type !== 'file').every((f, i) => {
+            const subVal  = (s.data[f.id] ?? '').toString().trim().toLowerCase();
+            const lineVal = (vals[i] ?? '').toString().trim().toLowerCase();
+            return subVal === lineVal || subVal.includes(lineVal) || lineVal.includes(subVal);
+          })
+        );
+        if (found) matched.push(found);
+      }
+    }
+
+    if (!matched.length) return bot.sendMessage(chatId, '⚠️ لم يتم إيجاد تسليمات مطابقة للبيانات المُرسلة.');
+
+    // ← حفظ النتيجة وطلب تأكيد بدل التنفيذ الفوري
+    setSession(adminId, 'approve_by_data', 'confirm', {
+      taskId: data.taskId,
+      ids: matched.map(s => s.id),
+    });
     return bot.sendMessage(chatId,
-      `هل تريد رفض *${count}* تسليماً${reason ? ` بسبب: "${reason}"` : ''}؟`,
-      { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`bulk_rej_ok:${adminId}`, `adm_subs:${sh(data.taskId)}`) }
+      `✅ تم العثور على *${matched.length}* تسليم مطابق.\nهل تريد قبولهم جميعاً وإضافة المكافآت؟`,
+      { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`appdata_ok:${adminId}`, `appdata_cancel:${adminId}`) }
     );
   }
 
-  if (flow === 'bulk_approve_n' && step === 'count') {
-    const n = parseInt(text);
-    if (isNaN(n) || n < 1) return bot.sendMessage(chatId, '⚠️ أدخل رقماً أكبر من 0.');
-    setSession(adminId, 'bulk_approve', 'confirm', { taskId: data.taskId, limit: n });
-    return bot.sendMessage(chatId, `هل تريد قبول *${n}* تسليماً؟`,
-      { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`bulk_app_ok:${adminId}`, `adm_subs:${sh(data.taskId)}`) });
+  if (flow === 'approve_by_data' && step === 'confirm') {
+    // لا يُستدعى من هنا — يُعالَج من callback_query أدناه
+  }
   }
 
-  if (flow === 'bulk_reject_n' && step === 'count') {
-    const n = parseInt(text);
-    if (isNaN(n) || n < 1) return bot.sendMessage(chatId, '⚠️ أدخل رقماً أكبر من 0.');
-    setSession(adminId, 'bulk_reject', 'reason', { taskId: data.taskId, limit: n });
-    return bot.sendMessage(chatId, '📝 أدخل سبب الرفض (أو أرسل "تخطي"):');
-  }
-
-  if (flow === 'exp_n' && step === 'count') {
-    const n = parseInt(text);
-    if (isNaN(n) || n < 1) return bot.sendMessage(chatId, '⚠️ أدخل رقماً أكبر من 0.');
+  if (flow === 'reject_by_data' && step === 'waiting') {
     clearSession(adminId);
-    const result = exporter.exportUnexported(data.taskId, n);
-    return sendFileToAdmin(bot, chatId, result, `📤 تصدير ${n} تسليم`);
+    if (text === '❌ إلغاء') return bot.sendMessage(chatId, '❌ تم الإلغاء.');
+    const taskObj = db.getTask(data.taskId);
+    const flds    = taskObj ? [...taskObj.fields].sort((a,b) => a.order - b.order) : [];
+    const pending = db.getSubmissions(data.taskId, 'pending');
+
+    // "الكل" → رفض جميع المعلقة
+    let matched = [];
+    if (text.trim() === 'الكل') {
+      matched = pending;
+    } else {
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        const vals  = line.split(':');
+        const found = pending.find(s =>
+          !matched.find(m => m.id === s.id) &&
+          flds.filter(f => f.type !== 'image' && f.type !== 'file').every((f, i) => {
+            const subVal  = (s.data[f.id] ?? '').toString().trim().toLowerCase();
+            const lineVal = (vals[i] ?? '').toString().trim().toLowerCase();
+            return subVal === lineVal || subVal.includes(lineVal) || lineVal.includes(subVal);
+          })
+        );
+        if (found) matched.push(found);
+      }
+    }
+
+    if (!matched.length) return bot.sendMessage(chatId, '⚠️ لم يتم إيجاد تسليمات مطابقة للبيانات المُرسلة.');
+
+    // ← حفظ النتيجة وطلب تأكيد بدل التنفيذ الفوري
+    setSession(adminId, 'reject_by_data', 'confirm', {
+      taskId: data.taskId,
+      ids: matched.map(s => s.id),
+    });
+    return bot.sendMessage(chatId,
+      `❌ تم العثور على *${matched.length}* تسليم مطابق.\nهل تريد رفضهم جميعاً وإشعار أصحابهم؟`,
+      { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`rejdata_ok:${adminId}`, `rejdata_cancel:${adminId}`) }
+    );
+  }
+
+  if (flow === 'reject_by_data' && step === 'confirm') {
+    // لا يُستدعى من هنا — يُعالَج من callback_query أدناه
+  }
   }
 
   if (flow === 'undo_ids' && step === 'waiting') {
@@ -375,9 +449,10 @@ async function handleAdminText(bot, msg, adminId) {
       const vals  = line.split(':');
       const found = allSubs.find(s =>
         !matched.find(m => m.id === s.id) &&
-        flds.every((f, i) => {
-          if (f.type === 'image' || f.type === 'file') return true;
-          return (s.data[f.id] ?? '') === (vals[i] ?? '');
+        flds.filter(f => f.type !== 'image' && f.type !== 'file').every((f, i) => {
+          const subVal  = (s.data[f.id] ?? '').toString().trim().toLowerCase();
+          const lineVal = (vals[i] ?? '').toString().trim().toLowerCase();
+          return subVal === lineVal || subVal.includes(lineVal) || lineVal.includes(subVal);
         })
       );
       if (found) matched.push(found);
@@ -386,16 +461,6 @@ async function handleAdminText(bot, msg, adminId) {
     exporter.undoExportedIds(data.taskId, matched.map(s => s.id));
     clearSession(adminId);
     return bot.sendMessage(chatId, `↩️ تم إرجاع *${matched.length}* تسليماً من التصدير.`, { parse_mode: 'Markdown' });
-  }
-
-  if (flow === 'selective_ids' && step === 'waiting') {
-    const parts   = text.split(/[\s,\n]+/).filter(Boolean);
-    const allSubs = db.getSubmissions(data.taskId);
-    const matched = allSubs.filter(s => parts.some(p => s.id.startsWith(p)));
-    if (!matched.length) return bot.sendMessage(chatId, '⚠️ لم يتم إيجاد تسليمات.');
-    setSession(adminId, 'selective_act', 'action', { taskId: data.taskId, ids: matched.map(s => s.id) });
-    return bot.sendMessage(chatId, `✅ تم تحديد *${matched.length}* تسليماً. اختر العملية:`,
-      { parse_mode: 'Markdown', reply_markup: selectiveActionKeyboard(data.taskId) });
   }
 
   if (flow === 'selective_names' && step === 'waiting') {
@@ -425,6 +490,13 @@ function register(bot, isAdmin) {
     if (!msg.text || !isAdmin(msg.from.id)) return;
     if (msg.text.startsWith('/')) return;
     if (msg.text.startsWith('🟢') || msg.text.startsWith('🔴')) return;
+    // تجاهل أزرار القائمة الرئيسية للأدمن
+    const menuTexts = [
+      '📋 إدارة المهام', '➕ مهمة جديدة', '📊 إحصائيات',
+      '📤 طلبات السحب',  '👥 المستخدمون',  '💱 سعر الصرف',
+      '🔧 لوحة الأدمن',  '🏠 القائمة الرئيسية',
+    ];
+    if (menuTexts.includes(msg.text)) return;
     await handleAdminText(bot, msg, msg.from.id);
   });
 
@@ -480,39 +552,45 @@ function register(bot, isAdmin) {
     // ── ✅ إرسال المقبولة وقبولها ────────────────
     if (data.startsWith('exp_approved:')) {
       await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      const count  = db.getSubmissions(taskId, 'approved').length;
-      if (!count) return bot.sendMessage(chatId, '📭 لا توجد تسليمات موافق عليها.');
+      const taskId  = expandTaskId(data.split(':')[1]);
+      const pending = db.getSubmissions(taskId, 'pending');
+      if (!pending.length) return bot.sendMessage(chatId, '📭 لا توجد تسليمات معلقة.');
+      setSession(adminId, 'approve_by_data', 'waiting', { taskId });
       return bot.sendMessage(chatId,
-        `هل تريد إرسال *${count}* تسليماً موافقاً عليه وإشعار أصحابها؟`,
-        { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`exp_app_ok:${sh(taskId)}`, `adm_subs:${sh(taskId)}`) }
+        `✅ *قبول التسليمات*\n\n` +
+        `أرسل البيانات كما ظهرت لك، كل تسليم في سطر:\n\n` +
+        `_مثال:_\n\`example@hotmail.com:password:datr...c_user=*\`\n\n` +
+        `أو أرسل \`الكل\` لقبول جميع التسليمات المعلقة (${pending.length} تسليم)`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [[{ text: 'الكل' }, { text: '❌ إلغاء' }]],
+            resize_keyboard: true, one_time_keyboard: true,
+          },
+        }
       );
-    }
-    if (data.startsWith('exp_app_ok:')) {
-      await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      bot.sendMessage(chatId, '⏳ جاري المعالجة...');
-      const result = await exporter.sendApprovedAndNotify(bot, taskId, notifyApproved);
-      return sendFileToAdmin(bot, chatId, result, '✅ المقبولة');
     }
 
     // ── ❌ إرسال المرفوضة ورفضها ──────────────────
     if (data.startsWith('exp_rejected:')) {
       await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      const count  = db.getSubmissions(taskId, 'rejected').length;
-      if (!count) return bot.sendMessage(chatId, '📭 لا توجد تسليمات مرفوضة.');
+      const taskId  = expandTaskId(data.split(':')[1]);
+      const pending = db.getSubmissions(taskId, 'pending');
+      if (!pending.length) return bot.sendMessage(chatId, '📭 لا توجد تسليمات معلقة.');
+      setSession(adminId, 'reject_by_data', 'waiting', { taskId });
       return bot.sendMessage(chatId,
-        `هل تريد إرسال *${count}* تسليماً مرفوضاً وإشعار أصحابها؟`,
-        { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`exp_rej_ok:${sh(taskId)}`, `adm_subs:${sh(taskId)}`) }
+        `❌ *رفض التسليمات*\n\n` +
+        `أرسل البيانات كما ظهرت لك، كل تسليم في سطر:\n\n` +
+        `_مثال:_\n\`example@hotmail.com:password\`\n\n` +
+        `أو أرسل \`الكل\` لرفض جميع التسليمات المعلقة (${pending.length} تسليم)`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [[{ text: 'الكل' }, { text: '❌ إلغاء' }]],
+            resize_keyboard: true, one_time_keyboard: true,
+          },
+        }
       );
-    }
-    if (data.startsWith('exp_rej_ok:')) {
-      await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      bot.sendMessage(chatId, '⏳ جاري المعالجة...');
-      const result = await exporter.sendRejectedAndNotify(bot, taskId, notifyRejected);
-      return sendFileToAdmin(bot, chatId, result, '❌ المرفوضة');
     }
 
     // ── ⏳ التسليمات في الانتظار (للمراجعة فقط) ──
@@ -526,12 +604,6 @@ function register(bot, isAdmin) {
         { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`view_pend_ok:${sh(taskId)}`, `adm_subs:${sh(taskId)}`) }
       );
     }
-    if (data.startsWith('view_pend_ok:')) {
-      await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      const result = exporter.exportForReview(taskId, 'pending');
-      return sendFileToAdmin(bot, chatId, result, '⏳ في الانتظار (للمراجعة)');
-    }
 
     // ── 📦 غير المصدَّرة (pending + exported=0) ──────────
     if (data.startsWith('view_unexported:')) {
@@ -541,14 +613,16 @@ function register(bot, isAdmin) {
       if (!count) return bot.sendMessage(chatId, '📭 كل التسليمات المعلقة مصدَّرة أو لا يوجد تسليمات.');
       return bot.sendMessage(chatId,
         `📦 *غير المصدَّرة (في الانتظار):* *${count}*\n\nهل تريد تصدير ملف للمراجعة (بدون تغيير علامة التصدير)؟`,
-        { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`view_unexp_ok:${sh(taskId)}`, `adm_subs:${sh(taskId)}`) }
+        { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`view_pend_ok:${sh(taskId)}`, `adm_subs:${sh(taskId)}`) }
       );
     }
-    if (data.startsWith('view_unexp_ok:')) {
+
+    // ── تأكيد تصدير المراجعة (مشترك بين view_pending و view_unexported) ──
+    if (data.startsWith('view_pend_ok:')) {
       await bot.answerCallbackQuery(query.id);
       const taskId = expandTaskId(data.split(':')[1]);
       const result = exporter.exportForReview(taskId, 'pending');
-      return sendFileToAdmin(bot, chatId, result, '📦 غير المصدَّرة - في الانتظار');
+      return sendFileToAdmin(bot, chatId, result, '⏳ في الانتظار (للمراجعة)');
     }
 
     // ── ↩️ قائمة الإرجاع ──────────────────────────
@@ -658,55 +732,80 @@ function register(bot, isAdmin) {
       return sendSubDetail(bot, chatId, taskId, subId);
     }
 
-    // ── قائمة العمليات الجماعية ───────────────────
-    if (data.startsWith('subs_bulk_menu:')) {
-      await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      return bot.sendMessage(chatId, '⚡ *العمليات الجماعية*',
-        { parse_mode: 'Markdown', reply_markup: bulkMenuKeyboard(taskId) });
-    }
-
-    // ── قبول جماعي ───────────────────────────────
-    if (data.startsWith('bulk_approve:')) {
-      await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      const count  = db.getSubmissions(taskId, 'pending').length;
-      if (!count) return bot.sendMessage(chatId, '📭 لا توجد تسليمات في الانتظار.');
-      setSession(adminId, 'bulk_approve', 'confirm', { taskId, limit: null });
-      return bot.sendMessage(chatId, `هل تريد قبول *${count}* تسليماً؟`,
-        { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`bulk_app_ok:${adminId}`, `adm_subs:${sh(taskId)}`) });
-    }
-    if (data.startsWith('bulk_app_ok:')) {
+    // ── تأكيد قبول البيانات ──────────────────────
+    if (data.startsWith('appdata_ok:')) {
       await bot.answerCallbackQuery(query.id);
       const session = getSession(adminId);
-      if (!session) return;
+      if (!session || session.flow !== 'approve_by_data') return;
       clearSession(adminId);
-      return executeBulkApprove(bot, chatId, session.data.taskId, session.data.limit);
+      const { taskId, ids } = session.data;
+      const taskObj = db.getTask(taskId);
+      if (!taskObj) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
+      bot.sendMessage(chatId, `⏳ جاري قبول *${ids.length}* تسليم...`, { parse_mode: 'Markdown' });
+      const processedUsers = new Set();
+      let done = 0, totalCancelled = 0;
+      for (const subId of ids) {
+        const sub = db.getSubmission(taskId, subId);
+        if (!sub) continue;
+        db.updateSubmissionStatus(taskId, subId, 'approved');
+        const reward = db.getEffectiveReward(sub.userId, taskObj);
+        db.addBalance(sub.userId, reward);
+        await notifyApproved(bot, sub, taskObj);
+        if (!processedUsers.has(sub.userId)) {
+          processedUsers.add(sub.userId);
+          const allPending = db.getAllPendingForUser(sub.userId);
+          for (const { taskId: tid, sub: ps } of allPending) {
+            if (ids.includes(ps.id)) continue;
+            const stillExists = db.getSubmission(tid, ps.id);
+            if (!stillExists) continue;
+            db.updateSubmissionStatus(tid, ps.id, 'rejected', 'تم قبول تسليم سابق لك');
+            await notifyRejected(bot, ps, db.getTask(tid), 'تم قبول تسليم سابق لك');
+            db.deleteSubmission(tid, ps.id);
+            totalCancelled++;
+          }
+        }
+        db.deleteSubmission(taskId, subId);
+        done++;
+      }
+      return bot.sendMessage(chatId,
+        `✅ تم قبول *${done}* تسليم وإضافة المكافآت لأصحابها.${totalCancelled > 0 ? `\n⚠️ تم إلغاء *${totalCancelled}* تسليم معلق آخر تلقائياً.` : ''}`,
+        { parse_mode: 'Markdown', reply_markup: subsMenuKeyboard(taskId) }
+      );
+    }
+    if (data.startsWith('appdata_cancel:')) {
+      await bot.answerCallbackQuery(query.id);
+      clearSession(adminId);
+      return bot.sendMessage(chatId, '❌ تم إلغاء العملية.');
     }
 
-    // ── رفض جماعي ────────────────────────────────
-    if (data.startsWith('bulk_reject:') && !data.startsWith('bulk_reject_n')) {
-      await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      const count  = db.getSubmissions(taskId, 'pending').length;
-      if (!count) return bot.sendMessage(chatId, '📭 لا توجد تسليمات في الانتظار.');
-      setSession(adminId, 'bulk_reject', 'reason', { taskId, limit: null });
-      return bot.sendMessage(chatId, `📝 أدخل سبب الرفض لـ *${count}* تسليم (أو "تخطي"):`, { parse_mode: 'Markdown' });
-    }
-    if (data.startsWith('bulk_rej_ok:')) {
+    // ── تأكيد رفض البيانات ───────────────────────
+    if (data.startsWith('rejdata_ok:')) {
       await bot.answerCallbackQuery(query.id);
       const session = getSession(adminId);
-      if (!session) return;
+      if (!session || session.flow !== 'reject_by_data') return;
       clearSession(adminId);
-      return executeBulkReject(bot, chatId, session.data.taskId, session.data.limit, session.data.reason);
+      const { taskId, ids } = session.data;
+      const taskObj = db.getTask(taskId);
+      if (!taskObj) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
+      bot.sendMessage(chatId, `⏳ جاري رفض *${ids.length}* تسليم...`, { parse_mode: 'Markdown' });
+      let done = 0;
+      for (const subId of ids) {
+        const sub = db.getSubmission(taskId, subId);
+        if (!sub) continue;
+        db.updateSubmissionStatus(taskId, subId, 'rejected');
+        await notifyRejected(bot, sub, taskObj, null);
+        db.deleteSubmission(taskId, subId);
+        done++;
+      }
+      return bot.sendMessage(chatId,
+        `❌ تم رفض *${done}* تسليم وإشعار أصحابها.`,
+        { parse_mode: 'Markdown', reply_markup: subsMenuKeyboard(taskId) }
+      );
     }
-
-    // ── انتقائي بـ IDs ────────────────────────────
-    if (data.startsWith('selective_ids:')) {
+    if (data.startsWith('rejdata_cancel:')) {
       await bot.answerCallbackQuery(query.id);
-      const taskId = expandTaskId(data.split(':')[1]);
-      setSession(adminId, 'selective_ids', 'waiting', { taskId });
-      return bot.sendMessage(chatId, '🎯 أرسل معرفات التسليمات (أول 8 أحرف) مفصولة بمسافة:');
+      clearSession(adminId);
+      return bot.sendMessage(chatId, '❌ تم إلغاء العملية.');
     }
 
     // ── انتقائي بالأسماء ──────────────────────────

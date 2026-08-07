@@ -15,7 +15,9 @@
  */
 
 const db = require('../db');
-const { notifyUser } = require('./user');
+const { t, currencySymbol } = require('../i18n');
+const { notifyUser, getLang } = require('./user');
+const { escMd } = require('../utils/escMd');
 
 // ─────────────────────────────────────────────
 //  Sessions
@@ -70,7 +72,8 @@ function userCard(user) {
     overridesText = '\n\n🎯 *Override المكافآت:*\n';
     for (const [tid, reward] of overrides) {
       const task = db.getTask(tid);
-      overridesText += `• ${task?.name || tid}: \`${reward}\`\n`;
+      const name = task ? db.getTaskText(task, 'name', 'ar') : tid;
+      overridesText += `• ${escMd(name)}: \`${reward}\`\n`;
     }
   }
 
@@ -79,8 +82,8 @@ function userCard(user) {
     `━━━━━━━━━━━━━━━━━━\n` +
     `🆔 Telegram ID: \`${user.id}\`\n` +
     `🔢 UID الداخلي: \`#${user.uid || '—'}\`\n` +
-    `👤 اسم المستخدم: ${user.username ? `@${user.username.replace(/^@/,'')}` : '—'}\n` +
-    `📛 الاسم: ${user.firstName || '—'}\n` +
+    `👤 اسم المستخدم: ${user.username ? `@${escMd(user.username.replace(/^@/,''))}` : '—'}\n` +
+    `📛 الاسم: ${escMd(user.firstName) || '—'}\n` +
     `📅 تاريخ الانضمام: ${user.joinedAt || '—'}\n` +
     `🌐 اللغة: ${langLabel(user.lang)}\n` +
     `💱 العملة: ${curLabel(user.currency)}\n` +
@@ -92,7 +95,7 @@ function userCard(user) {
     `  ⏳ معلق: ${stats.pending}  ✅ مقبول: ${stats.approved}\n` +
     `  ❌ مرفوض: ${stats.rejected}  📤 مصدَّر: ${stats.exported}\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    `🚫 الحظر: ${user.isBanned ? `*محظور* منذ ${user.bannedAt}${user.banReason ? `\n📝 السبب: ${user.banReason}` : ''}` : 'غير محظور'}` +
+    `🚫 الحظر: ${user.isBanned ? `*محظور* منذ ${user.bannedAt}${user.banReason ? `\n📝 السبب: ${escMd(user.banReason)}` : ''}` : 'غير محظور'}` +
     overridesText
   );
 }
@@ -155,10 +158,11 @@ function overrideTasksKeyboard(userId) {
   const tasks = db.listTasks();
   const user  = db.getUser(userId);
   const rows  = tasks.map(t => {
-    const ov = user.rewardOverrides?.[t.id];
+    const ov    = user.rewardOverrides?.[t.id];
+    const name  = db.getTaskText(t, 'name', 'ar');
     const label = ov !== undefined
-      ? `✏️ ${t.name} (${ov} ← ${t.reward})`
-      : `🎯 ${t.name} (${t.reward})`;
+      ? `✏️ ${name} (${ov} ← ${t.reward})`
+      : `🎯 ${name} (${t.reward})`;
     return [{ text: label, callback_data: `usr_ov_task:${userId}:${t.id}` }];
   });
   rows.push([{ text: '🔙 رجوع', callback_data: `usr_view:${userId}` }]);
@@ -263,11 +267,11 @@ function sendUserSubs(bot, chatId, userId) {
   }
 
   const STATUS = { pending: '⏳', approved: '✅', rejected: '❌', exported: '📤' };
-  let text = `📋 *تسليمات ${user.username || user.firstName || user.id}*\n\n`;
+  let text = `📋 *تسليمات ${escMd(user.username || user.firstName || String(user.id))}*\n\n`;
   for (const { task, sub } of allSubs.slice(0, 20)) {
     const icon = STATUS[sub.status] || '•';
     const expIcon = sub.exported === 1 ? ' 📤' : '';
-    text += `${icon}${expIcon} *${task.name}* — \`${sub.id.substring(0, 8)}\` — ${sub.submittedAt}\n`;
+    text += `${icon}${expIcon} *${escMd(db.getTaskText(task, 'name', 'ar'))}* — \`${sub.id.substring(0, 8)}\` — ${sub.submittedAt}\n`;
   }
   if (allSubs.length > 20) text += `\n_... و ${allSubs.length - 20} تسليم آخر_`;
 
@@ -304,7 +308,7 @@ async function handleAdminText(bot, msg, adminId) {
     const newBal = db.addBalance(data.userId, amount);
     clearSession(adminId);
     bot.sendMessage(chatId, `✅ تم إضافة \`${amount}\` للمستخدم \`${data.userId}\`\n💰 الرصيد الجديد: \`${newBal}\``, { parse_mode: 'Markdown' });
-    await notifyUser(bot, data.userId, `🎁 *تم إضافة مكافأة لرصيدك!*\n💰 المبلغ: \`${amount} EGP\`\n💳 رصيدك الحالي: \`${newBal} EGP\``);
+    await notifyUser(bot, data.userId, `🎁 تم إضافة مكافأة لرصيدك!\n💰 المبلغ: ${amount} EGP\n💳 رصيدك الحالي: ${newBal} EGP`);
     sendUserCard(bot, chatId, data.userId);
     return;
   }
@@ -316,7 +320,7 @@ async function handleAdminText(bot, msg, adminId) {
     const newBal = db.addBalance(data.userId, -amount);
     clearSession(adminId);
     bot.sendMessage(chatId, `✅ تم خصم \`${amount}\` من المستخدم \`${data.userId}\`\n💰 الرصيد الجديد: \`${newBal}\``, { parse_mode: 'Markdown' });
-    await notifyUser(bot, data.userId, `⚠️ *تم خصم مبلغ من رصيدك*\n💸 المبلغ المخصوم: \`${amount} EGP\`\n💳 رصيدك الحالي: \`${newBal} EGP\``);
+    await notifyUser(bot, data.userId, `⚠️ تم خصم مبلغ من رصيدك\n💸 المبلغ المخصوم: ${amount} EGP\n💳 رصيدك الحالي: ${newBal} EGP`);
     sendUserCard(bot, chatId, data.userId);
     return;
   }
@@ -337,10 +341,12 @@ async function handleAdminText(bot, msg, adminId) {
     const reason = (text === 'تخطي' || text === 'skip') ? null : text;
     db.banUser(data.userId, reason);
     clearSession(adminId);
-    bot.sendMessage(chatId, `🚫 تم حظر المستخدم \`${data.userId}\`${reason ? `\nالسبب: ${reason}` : ''}`, { parse_mode: 'Markdown' });
-    await notifyUser(bot, data.userId,
-      `🚫 *تم حظر حسابك*\n${reason ? `📝 السبب: ${reason}` : ''}\n\nللاستفسار تواصل مع الإدارة.`
+    bot.sendMessage(chatId,
+      `🚫 تم حظر المستخدم \`${data.userId}\`${reason ? `\nالسبب: ${escMd(reason)}` : ''}`,
+      { parse_mode: 'Markdown' }
     );
+    const userLang = getLang(data.userId);
+    await notifyUser(bot, data.userId, t('notify_banned', userLang, reason));
     sendUserCard(bot, chatId, data.userId);
     return;
   }
@@ -381,8 +387,16 @@ function register(bot, isAdmin) {
     const session = getSession(msg.from.id);
     if (!session) return;
     if (!msg.text || msg.text.startsWith('/')) return;
-    if (msg.text === '👥 المستخدمون') return;
     if (msg.text.startsWith('🟢') || msg.text.startsWith('🔴')) return;
+    // تجاهل أزرار القائمة الرئيسية للأدمن
+    const menuTexts = [
+      '📋 إدارة المهام', '➕ مهمة جديدة', '📊 إحصائيات',
+      '📤 طلبات السحب',  '👥 المستخدمون',  '💱 سعر الصرف',
+      '🔧 لوحة الأدمن',  '🏠 القائمة الرئيسية',
+    ];
+    if (menuTexts.includes(msg.text)) return;
+    const menuTexts2 = ['⚙️ الإعدادات', '⚙️ إعدادات النظام', '📨 إرسال رسالة', '🔙 رجوع'];
+    if (menuTexts2.includes(msg.text)) return;
     await handleAdminText(bot, msg, msg.from.id);
   });
 
@@ -480,7 +494,8 @@ function register(bot, isAdmin) {
       const userId = parseInt(data.split(':')[1]);
       db.unbanUser(userId);
       bot.sendMessage(chatId, `✅ تم إلغاء حظر المستخدم \`${userId}\`.`, { parse_mode: 'Markdown' });
-      await notifyUser(bot, userId, '✅ *تم رفع الحظر عن حسابك.*\nيمكنك الآن استخدام البوت مجدداً.');
+      const userLang = getLang(userId);
+      await notifyUser(bot, userId, t('notify_unbanned', userLang));
       sendUserCard(bot, chatId, userId);
       return;
     }
@@ -506,11 +521,11 @@ function register(bot, isAdmin) {
       const user = db.getUser(parseInt(userId));
       const cur  = user.rewardOverrides?.[taskId];
       setSession(adminId, 'set_override', 'waiting', {
-        userId: parseInt(userId), taskId, taskName: task?.name,
+        userId: parseInt(userId), taskId, taskName: db.getTaskText(task, 'name', 'ar'),
       });
       bot.sendMessage(chatId,
         `🎯 *Override مكافأة*\n\n` +
-        `المهمة: *${task?.name}*\n` +
+        `المهمة: *${escMd(db.getTaskText(task, 'name', 'ar'))}*\n` +
         `المكافأة الأصلية: \`${task?.reward}\`\n` +
         `Override الحالي: ${cur !== undefined ? `\`${cur}\`` : 'لا يوجد'}\n\n` +
         `أدخل المكافأة الجديدة أو أرسل "حذف" لإزالة الـ override:`,

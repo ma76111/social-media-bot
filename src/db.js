@@ -100,6 +100,9 @@ function recalcStats(task) {
 
 /**
  * إنشاء مهمة جديدة
+ * الحقول النصية (name, shortDesc, fullDesc) تدعم:
+ *   - string: نص عادي (يُعرض لكل اللغات)
+ *   - object: { ar: '...', en: '...', ... } (i18n)
  * @returns {object} المهمة الجديدة
  */
 function createTask({ name, shortDesc, fullDesc, reward,
@@ -108,9 +111,9 @@ function createTask({ name, shortDesc, fullDesc, reward,
                        isOpen = true }) {
   const task = {
     id: uuidv4(),
-    name,
-    shortDesc,
-    fullDesc,
+    name,        // string | { ar, en, ... }
+    shortDesc,   // string | { ar, en, ... }
+    fullDesc,    // string | { ar, en, ... }
     videoFileId,
     reward: Number(reward),
     maxPerUser: maxPerUser ? Number(maxPerUser) : null,
@@ -118,10 +121,46 @@ function createTask({ name, shortDesc, fullDesc, reward,
     order: 9999,
     createdAt: now(),
     fields: [],
-    features: [],          // ← نظام الميزات
+    features: [],
     submissions: [],
     stats: { total: 0, pending: 0, approved: 0, rejected: 0, exported: 0 },
   };
+  saveTask(task);
+  return task;
+}
+
+/**
+ * جلب نص مهمة بلغة معينة مع fallback
+ * @param {object} task
+ * @param {'name'|'shortDesc'|'fullDesc'} field
+ * @param {string} lang  'ar' | 'en' | ...
+ * @returns {string}
+ */
+function getTaskText(task, field, lang = 'ar') {
+  const val = task[field];
+  if (!val) return '';
+  if (typeof val === 'string') return val;   // قديم — نص عادي
+  // i18n object: ابحث عن اللغة المطلوبة، ثم عربي، ثم أول قيمة موجودة
+  return val[lang] || val['ar'] || Object.values(val).find(v => v) || '';
+}
+
+/**
+ * تعيين نص i18n لحقل معين في المهمة
+ * @param {object} task
+ * @param {'name'|'shortDesc'|'fullDesc'} field
+ * @param {string} lang
+ * @param {string} value
+ */
+function setTaskText(taskId, field, lang, value) {
+  const task = loadTask(taskId);
+  if (!task) return null;
+  const current = task[field];
+  if (!current || typeof current === 'string') {
+    // حوّل من string إلى i18n object
+    const base = current || '';
+    task[field] = { ar: base, en: base };
+  }
+  task[field][lang] = value;
   saveTask(task);
   return task;
 }
@@ -199,6 +238,9 @@ function addField(taskId, { label, type, required = true }) {
     type: FIELD_TYPES.includes(type) ? type : 'text',
     required: Boolean(required),
     order: task.fields.length,
+    altType: null,       // null | string — نوع بديل مقبول أيضاً
+    mergedWith: null,    // deprecated — احتُفظ به للتوافق مع البيانات القديمة
+    mergeSeparator: ':',
   };
   task.fields.push(field);
   saveTask(task);
@@ -213,7 +255,7 @@ function updateField(taskId, fieldId, updates) {
   if (!task) return false;
   const field = task.fields.find(f => f.id === fieldId);
   if (!field) return false;
-  for (const k of ['label','type','required','order']) {
+  for (const k of ['label','type','required','order','mergedWith','mergeSeparator','altType']) {
     if (k in updates) field[k] = updates[k];
   }
   task.fields.sort((a, b) => a.order - b.order);
@@ -338,15 +380,24 @@ function getSubmission(taskId, submissionId) {
 function getSubmissions(taskId, status = null, exported = null) {
   const task = loadTask(taskId);
   if (!task) return [];
-  let subs = task.submissions;
-  // migrate: القديمة كانت status='exported' نحوّلها
-  subs = subs.map(s => {
+  // migrate: القديمة كانت status='exported' أو exported=undefined — نصلحها ونحفظ
+  let needsSave = false;
+  for (const s of task.submissions) {
     if (s.status === 'exported') {
-      return { ...s, status: 'approved', exported: 1 };
+      s.status   = 'approved';
+      s.exported = 1;
+      needsSave  = true;
     }
-    if (s.exported === undefined) s.exported = 0;
-    return s;
-  });
+    if (s.exported === undefined) {
+      s.exported = 0;
+      needsSave  = true;
+    }
+  }
+  if (needsSave) {
+    recalcStats(task);
+    saveTask(task);
+  }
+  let subs = task.submissions;
   if (status   !== null) subs = subs.filter(s => s.status === status);
   if (exported !== null) subs = subs.filter(s => s.exported === exported);
   return [...subs].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
@@ -409,13 +460,70 @@ function bulkUpdateStatus(taskId, submissionIds, newStatus, rejectReason = null)
 }
 
 /**
- * عدد تسليمات مستخدم لمهمة (غير المرفوضة)
+ * هل هذه البيانات موجودة مسبقاً في أي تسليم لأي مستخدم؟
+ * يُستخدم لمنع التسليم بنفس البيانات من أكونت مختلف
+ *
+ * @param {string}   taskId
+ * @param {object}   data        — { fieldId: value }
+ * @param {string}   excludeUserId — استثناء المستخدم الحالي (لتجاهل تسليماته القديمة)
+ * @returns {object|null} التسليم المكرر أو null
  */
+function hasSubmittedData(taskId, data, excludeUserId = null) {
+  const task = loadTask(taskId);
+  if (!task) return null;
+
+  // نحضر الحقول النصية فقط (بدون image/file)
+  const textFields = task.fields.filter(f => f.type !== 'image' && f.type !== 'file');
+  if (!textFields.length) return null;
+
+  for (const sub of task.submissions) {
+    if (excludeUserId && String(sub.userId) === String(excludeUserId)) continue;
+    if (sub.status === 'rejected') continue; // المرفوضة لا تُحسب
+
+    const isDuplicate = textFields.every(f => {
+      const newVal = (data[f.id] || '').toString().trim().toLowerCase();
+      const subVal = (sub.data[f.id] || '').toString().trim().toLowerCase();
+      return newVal === subVal;
+    });
+
+    if (isDuplicate) return sub;
+  }
+  return null;
+}
+
+/**
+ * جلب كل التسليمات المعلقة لمستخدم في مهمة معينة
+ * (للتراجع عنها قبل القبول)
+ */
+function getUserPendingInTask(taskId, userId) {
+  const task = loadTask(taskId);
+  if (!task) return [];
+  return task.submissions.filter(
+    s => String(s.userId) === String(userId) && s.status === 'pending'
+  );
+}
+
+/**
+ * جلب كل التسليمات المعلقة لمستخدم عبر كل المهام
+ * (للتراجع عنها قبل قبول أي تسليم له)
+ */
+function getAllPendingForUser(userId) {
+  const result = [];
+  for (const id of listTaskIds()) {
+    const task = loadTask(id);
+    if (!task) continue;
+    const pending = task.submissions.filter(
+      s => String(s.userId) === String(userId) && s.status === 'pending'
+    );
+    for (const sub of pending) result.push({ taskId: id, sub });
+  }
+  return result;
+}
 function countUserSubmissions(taskId, userId) {
   const task = loadTask(taskId);
   if (!task) return 0;
   return task.submissions.filter(
-    s => s.userId === userId && s.status !== 'rejected'
+    s => String(s.userId) === String(userId) && s.status !== 'rejected'
   ).length;
 }
 
@@ -597,14 +705,66 @@ function findUserByUsername(username) {
 }
 
 // ─────────────────────────────────────────────
+//  SETTINGS  (إعدادات النظام)
+// ─────────────────────────────────────────────
+
+const SETTINGS_FILE = path.join(__dirname, '..', 'data', 'settings.json');
+
+const DEFAULT_SETTINGS = {
+  minWithdrawal:   50,
+  maxWithdrawal:   5000,
+  botEnabled:      true,
+  referralEnabled: false,
+  referralReward:  0,
+};
+
+let _settingsCache = null;
+
+function loadSettings() {
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf8');
+    return { ...DEFAULT_SETTINGS };
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    // merge مع الافتراضي لضمان وجود كل الحقول
+    return { ...DEFAULT_SETTINGS, ...raw };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(settings) {
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+  _settingsCache = null;
+}
+
+function getSettings() {
+  if (!_settingsCache) _settingsCache = loadSettings();
+  return _settingsCache;
+}
+
+function getSetting(key) {
+  return getSettings()[key] ?? DEFAULT_SETTINGS[key];
+}
+
+function setSetting(key, value) {
+  const settings = loadSettings();
+  settings[key]  = value;
+  saveSettings(settings);
+  _settingsCache = settings;
+  return settings;
+}
+
+// ─────────────────────────────────────────────
 //  WITHDRAWALS  (طلبات السحب)
 // ─────────────────────────────────────────────
 //
 //  كل طلب:
 //  {
 //    id, userId, username,
-//    method: 'cash_eg' | 'binance',
-//    details: string,   ← رقم الهاتف (كاش) أو Binance ID
+//    method: 'cash_eg' | 'binance' | 'usdt_trc20' | 'usdt_bep20',
+//    details: string,   ← رقم الهاتف (كاش) | Binance ID | عنوان USDT
 //    amount: number,
 //    status: 'pending' | 'approved' | 'rejected',
 //    rejectReason: null | string,
@@ -628,8 +788,8 @@ function createWithdrawal({ userId, username, method, details, amount }) {
     id: uuidv4(),
     userId,
     username,
-    method,      // 'cash_eg' | 'binance'
-    details,     // رقم الهاتف أو Binance ID
+    method,      // 'cash_eg' | 'binance' | 'usdt_trc20' | 'usdt_bep20'
+    details,     // رقم الهاتف | Binance ID | عنوان USDT
     amount: Number(amount),
     status: 'pending',
     rejectReason: null,
@@ -690,6 +850,7 @@ function updateWithdrawalStatus(id, newStatus, rejectReason = null) {
 module.exports = {
   // Tasks
   createTask, getTask, updateTask, deleteTask, listTasks,
+  getTaskText, setTaskText,
   // Fields
   FIELD_TYPES, addField, updateField, deleteField, reorderFields,
   // Submissions
@@ -697,6 +858,7 @@ module.exports = {
   updateSubmissionStatus, bulkUpdateStatus, setExported,
   deleteSubmission, bulkDeleteSubmissions,
   countUserSubmissions,
+  hasSubmittedData, getUserPendingInTask, getAllPendingForUser,
   // Users
   getUser, updateUserMeta, updateUserSettings,
   addBalance, setBalance,
@@ -705,6 +867,9 @@ module.exports = {
   listUsers, findUserByUid, findUserByUsername,
   // Features
   addFeature, updateFeature, deleteFeature, getFeatures,
+  // Settings
+  getSettings, getSetting, setSetting,
+  DEFAULT_SETTINGS,
   // Withdrawals
   createWithdrawal, getWithdrawals, getUserWithdrawals, updateWithdrawalStatus,
 };

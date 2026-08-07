@@ -7,6 +7,7 @@
 
 const db = require('../db');
 // نستخدم listUsers وgetWithdrawals من db مباشرةً
+const { escMd } = require('../utils/escMd');
 
 // ─────────────────────────────────────────────
 //  Session state per admin
@@ -33,8 +34,9 @@ function adminMainKeyboard() {
   return {
     reply_markup: {
       keyboard: [
-        [{ text: '📋 إدارة المهام' }, { text: '➕ مهمة جديدة' }],
-        [{ text: '📊 إحصائيات' }, { text: '🏠 القائمة الرئيسية' }],
+        [{ text: '📋 إدارة المهام' }, { text: '➕ مهمة جديدة'  }],
+        [{ text: '📊 إحصائيات'    }, { text: '📤 طلبات السحب' }],
+        [{ text: '👥 المستخدمون'  }, { text: '💱 سعر الصرف'   }],
       ],
       resize_keyboard: true,
     },
@@ -43,7 +45,7 @@ function adminMainKeyboard() {
 
 function taskListAdminKeyboard(tasks) {
   const rows = tasks.map(t => [{
-    text: `${t.isOpen ? '🟢' : '🔴'} ${t.name}`,
+    text: `${t.isOpen ? '🟢' : '🔴'} ${db.getTaskText(t, 'name', 'ar')}`,
     callback_data: `adm_task:${t.id}`,
   }]);
   rows.push([{ text: '➕ مهمة جديدة', callback_data: 'adm_new_task' }]);
@@ -63,7 +65,10 @@ function taskDetailKeyboard(task) {
         { text: '🗑 حذف',       callback_data: `adm_del_task:${sh(task.id)}` },
       ],
       [
-        { text: '📥 التسليمات', callback_data: `adm_subs:${sh(task.id)}` },
+        { text: '📥 التسليمات', callback_data: `adm_subs:${sh(task.id)}`    },
+        { text: '👁 عرض المهمة', callback_data: `adm_preview:${sh(task.id)}` },
+      ],
+      [
         { text: '🔙 رجوع',      callback_data: 'adm_tasks_list'              },
       ],
     ],
@@ -71,15 +76,27 @@ function taskDetailKeyboard(task) {
 }
 
 function editTaskKeyboard(taskId) {
-  const fields = [
-    ['الاسم','name'], ['الوصف المختصر','shortDesc'], ['الشرح الكامل','fullDesc'],
+  const rows = [];
+
+  // الحقول النصية — لكل حقل زرار لكل لغة
+  for (const field of I18N_FIELDS) {
+    const fieldLabel = { name: 'الاسم', shortDesc: 'الوصف المختصر', fullDesc: 'الشرح الكامل' }[field];
+    const langRow = SUPPORTED_LANGS.map(lang => ({
+      text: `✏️ ${fieldLabel} (${LANG_LABELS[lang]})`,
+      callback_data: `adm_edit_field_prop:${sh(taskId)}:${field}:${lang}`,
+    }));
+    rows.push(langRow);
+  }
+
+  // الحقول الأخرى
+  const otherFields = [
     ['المكافأة','reward'], ['الحد الأقصى/مستخدم','maxPerUser'],
     ['الترتيب','order'], ['فيديو الشرح','videoFileId'],
   ];
-  const rows = fields.map(([label, key]) => [{
-    text: `✏️ ${label}`,
-    callback_data: `adm_edit_field_prop:${sh(taskId)}:${key}`,
-  }]);
+  for (const [label, key] of otherFields) {
+    rows.push([{ text: `✏️ ${label}`, callback_data: `adm_edit_field_prop:${sh(taskId)}:${key}` }]);
+  }
+
   rows.push([{ text: '🔙 رجوع', callback_data: `adm_task:${sh(taskId)}` }]);
   return { inline_keyboard: rows };
 }
@@ -105,8 +122,8 @@ function expandFieldId(task, short) {
 function fieldsListKeyboard(task) {
   const sorted = [...task.fields].sort((a, b) => a.order - b.order);
   const rows = sorted.map(f => [{
-    text: `${f.required ? '🔴' : '🟡'} ${f.label} (${f.type})`,
-    callback_data: `adm_fd:${sh(task.id)}:${sh(f.id)}`,   // adm_fd = field detail
+    text: `${f.required ? '🔴' : '🟡'} ${typeof f.label === 'object' ? (f.label.ar || '—') : (f.label || '—')} (${f.type})`,
+    callback_data: `adm_fd:${sh(task.id)}:${sh(f.id)}`,
   }]);
   rows.push([
     { text: '➕ إضافة حقل', callback_data: `adm_add_field:${sh(task.id)}` },
@@ -117,19 +134,29 @@ function fieldsListKeyboard(task) {
 
 function fieldDetailKeyboard(taskId, fieldId) {
   const t = sh(taskId), f = sh(fieldId);
+  const task  = db.getTask(taskId);
+  const field = task?.fields.find(fi => fi.id === fieldId);
+  const mergeBtn = field?.altType
+    ? { text: `🔀 إلغاء النوع البديل (${field.altType})`, callback_data: `adm_alt_rm:${t}:${f}` }
+    : { text: '🔀 إضافة نوع بديل', callback_data: `adm_alt:${t}:${f}` };
+
   return {
     inline_keyboard: [
       [
-        { text: '✏️ تعديل الاسم', callback_data: `adm_ef:${t}:${f}:label` },
+        { text: '✏️ الاسم 🇦🇪', callback_data: `adm_ef:${t}:${f}:label_ar` },
+        { text: '✏️ Name 🇬🇧',   callback_data: `adm_ef:${t}:${f}:label_en` },
+      ],
+      [
         { text: '🔁 تغيير النوع', callback_data: `adm_ef:${t}:${f}:type`  },
+        { text: '🔄 تبديل الإلزامية', callback_data: `adm_fr:${t}:${f}` },
       ],
       [
         { text: '⬆️ رفع الترتيب', callback_data: `adm_fu:${t}:${f}` },
         { text: '⬇️ خفض الترتيب', callback_data: `adm_fd2:${t}:${f}` },
       ],
       [
-        { text: '🔄 تبديل الإلزامية', callback_data: `adm_fr:${t}:${f}` },
-        { text: '🗑 حذف',             callback_data: `adm_delf:${t}:${f}` },
+        mergeBtn,
+        { text: '🗑 حذف', callback_data: `adm_delf:${t}:${f}` },
       ],
       [{ text: '🔙 رجوع', callback_data: `adm_fields:${sh(taskId)}` }],
     ],
@@ -176,9 +203,20 @@ function yesNoKeyboard(yesCb, noCb) {
 
 function taskSummaryText(task) {
   const status = task.isOpen ? '🟢 مفتوحة' : '🔴 مغلقة';
+
+  // عرض النصوص i18n بشكل واضح
+  function showI18n(val) {
+    if (!val) return '—';
+    if (typeof val === 'string') return escMd(val);
+    return SUPPORTED_LANGS
+      .filter(l => val[l])
+      .map(l => `${LANG_LABELS[l]}: ${escMd(val[l])}`)
+      .join('\n    ') || '—';
+  }
+
   return (
-    `📌 *${task.name}*\n` +
-    `📄 ${task.shortDesc}\n\n` +
+    `📌 *${escMd(db.getTaskText(task, 'name', 'ar'))}*\n` +
+    `📄 الوصف:\n    ${showI18n(task.shortDesc)}\n\n` +
     `💰 المكافأة: \`${task.reward}\`\n` +
     `👤 حد التسليم/مستخدم: ${task.maxPerUser ?? 'غير محدود'}\n` +
     `🔢 الترتيب: ${task.order}\n` +
@@ -194,14 +232,21 @@ function taskSummaryText(task) {
   );
 }
 
+// اللغات المدعومة — أي لغة تُضاف هنا تظهر تلقائياً في الـ flow
+const SUPPORTED_LANGS = ['ar', 'en'];
+const LANG_LABELS = { ar: '🇦🇪 العربية', en: '🇬🇧 English' };
+
+// الحقول النصية التي تدعم i18n
+const I18N_FIELDS = ['name', 'shortDesc', 'fullDesc'];
+
 const PROP_LABELS = {
-  name: 'اسم المهمة',
-  shortDesc: 'الوصف المختصر',
-  fullDesc: 'الشرح الكامل',
-  reward: 'قيمة المكافأة',
+  name:       'اسم المهمة',
+  shortDesc:  'الوصف المختصر',
+  fullDesc:   'الشرح الكامل',
+  reward:     'قيمة المكافأة',
   maxPerUser: 'الحد الأقصى للتسليم لكل مستخدم (0 = غير محدود)',
-  order: 'رقم الترتيب',
-  videoFileId: 'أرسل الفيديو مباشرة (أو أرسل "حذف" لإزالته)',
+  order:      'رقم الترتيب',
+  videoFileId:'أرسل الفيديو مباشرة (أو أرسل "حذف" لإزالته)',
 };
 
 
@@ -237,8 +282,13 @@ function register(bot, isAdmin) {
     if (!session) return;
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.text && (msg.text.startsWith('🟢') || msg.text.startsWith('🔴'))) return;
-    // تجاهل أزرار القائمة
-    const menuTexts = ['📋 إدارة المهام','➕ مهمة جديدة','📊 إحصائيات','🔧 لوحة الأدمن','🏠 القائمة الرئيسية'];
+    // تجاهل أزرار القائمة الرئيسية للأدمن
+    const menuTexts = [
+      '📋 إدارة المهام', '➕ مهمة جديدة', '📊 إحصائيات',
+      '📤 طلبات السحب',  '👥 المستخدمون',  '💱 سعر الصرف',
+      '🔧 لوحة الأدمن',  '🏠 القائمة الرئيسية', '⚙️ الإعدادات',
+      '⚙️ إعدادات النظام', '📨 إرسال رسالة', '🔙 رجوع',
+    ];
     if (msg.text && menuTexts.includes(msg.text)) return;
 
     await handleAdminText(bot, msg, adminId, session);
@@ -266,8 +316,37 @@ function register(bot, isAdmin) {
 
     if (data.startsWith('adm_task:')) {
       await bot.answerCallbackQuery(query.id);
-      const taskId = data.split(':')[1];
+      const taskId = expandTaskId(data.split(':')[1]);
       sendTaskDetail(bot, chatId, taskId);
+      return;
+    }
+
+    if (data.startsWith('adm_preview:')) {
+      await bot.answerCallbackQuery(query.id);
+      const taskId = expandTaskId(data.split(':')[1]);
+      const task   = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
+      // نسأل عن اللغة
+      bot.sendMessage(chatId, '🌐 اختر لغة المعاينة:', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🇦🇪 العربية', callback_data: `adm_preview_lang:${sh(taskId)}:ar` },
+            { text: '🇬🇧 English', callback_data: `adm_preview_lang:${sh(taskId)}:en` },
+          ]],
+        },
+      });
+      return;
+    }
+
+    if (data.startsWith('adm_preview_lang:')) {
+      await bot.answerCallbackQuery(query.id);
+      const parts  = data.split(':');
+      const taskId = expandTaskId(parts[1]);
+      const lang   = parts[2];
+      const task   = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
+      const { _sendTaskDetailPreview } = require('./user');
+      await _sendTaskDetailPreview(bot, chatId, task, adminId, lang);
       return;
     }
 
@@ -301,7 +380,7 @@ function register(bot, isAdmin) {
       await bot.answerCallbackQuery(query.id);
       const taskId = expandTaskId(data.split(':')[1]);
       const task   = db.getTask(taskId);
-      bot.sendMessage(chatId, `✏️ *تعديل:* ${task.name}\n\nاختر ما تريد تعديله:`, {
+      bot.sendMessage(chatId, `✏️ *تعديل:* ${escMd(db.getTaskText(task, 'name', 'ar'))}\n\nاختر ما تريد تعديله:`, {
         parse_mode: 'Markdown',
         reply_markup: editTaskKeyboard(taskId),
       });
@@ -313,7 +392,8 @@ function register(bot, isAdmin) {
       const parts  = data.split(':');
       const taskId = expandTaskId(parts[1]);
       const prop   = parts[2];
-      startEditTaskProp(bot, chatId, adminId, taskId, prop);
+      const lang   = parts[3] || null;   // null = حقل غير i18n
+      startEditTaskProp(bot, chatId, adminId, taskId, prop, lang);
       return;
     }
 
@@ -322,7 +402,7 @@ function register(bot, isAdmin) {
       const taskId = expandTaskId(data.split(':')[1]);
       const task   = db.getTask(taskId);
       bot.sendMessage(chatId,
-        `⚠️ هل تريد حذف مهمة "*${task.name}*" نهائياً؟\nسيتم حذف جميع التسليمات المرتبطة بها.`,
+        `⚠️ هل تريد حذف مهمة "*${escMd(db.getTaskText(task, 'name', 'ar'))}*" نهائياً؟\nسيتم حذف جميع التسليمات المرتبطة بها.`,
         { parse_mode: 'Markdown', reply_markup: confirmDeleteKeyboard(taskId) }
       );
       return;
@@ -333,7 +413,7 @@ function register(bot, isAdmin) {
       const taskId = expandTaskId(data.split(':')[1]);
       const task   = db.getTask(taskId);
       db.deleteTask(taskId);
-      bot.sendMessage(chatId, `🗑 تم حذف المهمة "*${task?.name}*" بنجاح.`, {
+      bot.sendMessage(chatId, `🗑 تم حذف المهمة "*${escMd(task ? db.getTaskText(task, 'name', 'ar') : '')}*" بنجاح.`, {
         parse_mode: 'Markdown',
         ...adminMainKeyboard(),
       });
@@ -416,6 +496,71 @@ function register(bot, isAdmin) {
       const task    = db.getTask(taskId);
       const fieldId = task ? expandFieldId(task, fs) : fs;
       moveField(bot, chatId, taskId, fieldId, isUp ? -1 : 1);
+      return;
+    }
+
+    // adm_alt = إضافة نوع بديل للحقل
+    if (data.startsWith('adm_alt:')) {
+      await bot.answerCallbackQuery(query.id);
+      const [, ts, fs] = data.split(':');
+      const taskId  = expandTaskId(ts);
+      const task    = db.getTask(taskId);
+      const fieldId = expandFieldId(task, fs);
+      const field   = task.fields.find(f => f.id === fieldId);
+
+      // نعرض أنواع الحقول كخيارات (ما عدا النوع الحالي)
+      const otherTypes = db.FIELD_TYPES.filter(tp => tp !== field.type);
+      const rows = otherTypes.reduce((acc, tp, i) => {
+        if (i % 3 === 0) acc.push([]);
+        acc[acc.length - 1].push({
+          text: tp,
+          callback_data: `adm_alt_set:${sh(taskId)}:${sh(fieldId)}:${tp}`,
+        });
+        return acc;
+      }, []);
+      rows.push([{ text: '❌ إلغاء', callback_data: `adm_fd:${sh(taskId)}:${sh(fieldId)}` }]);
+
+      bot.sendMessage(chatId,
+        `🔀 *نوع بديل للحقل "${escMd(field.label)}"*\n\n` +
+        `النوع الحالي: \`${field.type}\`\n\n` +
+        `اختر النوع البديل المسموح به أيضاً:`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } }
+      );
+      return;
+    }
+
+    // adm_alt_set = تعيين النوع البديل
+    if (data.startsWith('adm_alt_set:')) {
+      await bot.answerCallbackQuery(query.id);
+      const parts   = data.split(':');
+      const taskId  = expandTaskId(parts[1]);
+      const task    = db.getTask(taskId);
+      const fieldId = expandFieldId(task, parts[2]);
+      const altType = parts[3];
+      const field   = task.fields.find(f => f.id === fieldId);
+
+      db.updateField(taskId, fieldId, { altType });
+      bot.sendMessage(chatId,
+        `✅ *تم تعيين النوع البديل!*\n\n` +
+        `الحقل "*${escMd(field.label)}*" يقبل الآن:\n` +
+        `• \`${field.type}\`\n` +
+        `• \`${altType}\``,
+        { parse_mode: 'Markdown' }
+      );
+      sendFieldDetail(bot, chatId, taskId, fieldId);
+      return;
+    }
+
+    // adm_alt_rm = حذف النوع البديل
+    if (data.startsWith('adm_alt_rm:')) {
+      await bot.answerCallbackQuery(query.id);
+      const [, ts, fs] = data.split(':');
+      const taskId  = expandTaskId(ts);
+      const task    = db.getTask(taskId);
+      const fieldId = expandFieldId(task, fs);
+      db.updateField(taskId, fieldId, { altType: null });
+      bot.sendMessage(chatId, '✅ تم حذف النوع البديل.');
+      sendFieldDetail(bot, chatId, taskId, fieldId);
       return;
     }
 
@@ -581,7 +726,7 @@ function sendStats(bot, chatId) {
   let totals = { total: 0, pending: 0, approved: 0, rejected: 0, exported: 0 };
   for (const tk of tasks) {
     const icon = tk.isOpen ? '🟢' : '🔴';
-    text += `${icon} *${tk.name}*: ${tk.stats.total} تسليم`;
+    text += `${icon} *${escMd(db.getTaskText(tk, 'name', 'ar'))}*: ${tk.stats.total} تسليم`;
     if (tk.stats.pending > 0) text += ` (⏳${tk.stats.pending})`;
     text += '\n';
     for (const k of Object.keys(totals)) totals[k] += tk.stats[k] || 0;
@@ -602,7 +747,7 @@ function sendFieldsList(bot, chatId, taskId) {
   const count = task.fields.length;
   bot.sendMessage(
     chatId,
-    `📝 *حقول المهمة "${task.name}"* (${count} حقل)\n\n🔴 إجباري | 🟡 اختياري`,
+    `📝 *حقول المهمة "${escMd(db.getTaskText(task, 'name', 'ar'))}"* (${count} حقل)\n\n🔴 إجباري | 🟡 اختياري`,
     { parse_mode: 'Markdown', reply_markup: fieldsListKeyboard(task) }
   );
 }
@@ -611,12 +756,21 @@ function sendFieldDetail(bot, chatId, taskId, fieldId) {
   const task  = db.getTask(taskId);
   const field = task?.fields.find(f => f.id === fieldId);
   if (!field) return bot.sendMessage(chatId, '⚠️ الحقل غير موجود.');
+
+  const altInfo   = field.altType ? `🔀 نوع بديل: \`${field.altType}\`` : '—';
+  // عرض الاسم بالعربي والإنجليزي
+  const labelAr   = typeof field.label === 'object' ? (field.label.ar || '—') : (field.label || '—');
+  const labelEn   = typeof field.label === 'object' ? (field.label.en || '—') : (field.label || '—');
+
   const text =
     `📝 *تفاصيل الحقل*\n\n` +
-    `• الاسم: *${field.label}*\n` +
+    `• الاسم 🇦🇪: *${escMd(labelAr)}*\n` +
+    `• الاسم 🇬🇧: *${escMd(labelEn)}*\n` +
     `• النوع: \`${field.type}\`\n` +
     `• إجباري: ${field.required ? '✅ نعم' : '❌ لا'}\n` +
-    `• الترتيب: ${field.order}`;
+    `• الترتيب: ${field.order}\n` +
+    `• النوع البديل: ${altInfo}`;
+
   bot.sendMessage(chatId, text, {
     parse_mode: 'Markdown',
     reply_markup: fieldDetailKeyboard(taskId, fieldId),
@@ -643,23 +797,26 @@ function moveField(bot, chatId, taskId, fieldId, direction) {
 // steps: name → shortDesc → fullDesc → video → reward → maxPerUser → status → confirm
 
 function startCreateTask(bot, chatId, adminId) {
-  setSession(adminId, 'create_task', 'name', {});
-  bot.sendMessage(chatId, '➕ *إنشاء مهمة جديدة*\n\n📝 أدخل *اسم المهمة:*', {
+  setSession(adminId, 'create_task', 'name_ar', {});
+  bot.sendMessage(chatId, '➕ *إنشاء مهمة جديدة*\n\n' + CREATE_PROMPTS.name_ar, {
     parse_mode: 'Markdown',
     reply_markup: cancelKeyboard('adm_tasks_list'),
   });
 }
 
-const CREATE_STEPS = ['name','shortDesc','fullDesc','video','reward','maxPerUser','status'];
+const CREATE_STEPS = ['name_ar','name_en','shortDesc_ar','shortDesc_en','fullDesc_ar','fullDesc_en','video','reward','maxPerUser','status'];
 
 const CREATE_PROMPTS = {
-  name:       '📝 أدخل *اسم المهمة:*',
-  shortDesc:  '📄 أدخل *وصفاً مختصراً:*',
-  fullDesc:   '📖 أدخل *الشرح النصي الكامل:*',
-  video:      '🎥 أرسل *فيديو الشرح* (اختياري - أرسل "تخطي" لتجاوزه)',
-  reward:     '💰 أدخل *قيمة المكافأة* (رقم):',
-  maxPerUser: '👤 أدخل *الحد الأقصى للتسليم لكل مستخدم* (0 = غير محدود):',
-  status:     '🔘 هل المهمة *مفتوحة* الآن؟',
+  name_ar:       '📝 أدخل *اسم المهمة* بالعربي:',
+  name_en:       '📝 Enter *task name* in English:',
+  shortDesc_ar:  '📄 أدخل *الوصف المختصر* بالعربي:',
+  shortDesc_en:  '📄 Enter *short description* in English:',
+  fullDesc_ar:   '📖 أدخل *الشرح الكامل* بالعربي:',
+  fullDesc_en:   '📖 Enter *full description* in English:',
+  video:         '🎥 أرسل *فيديو الشرح* (اختياري - أرسل "تخطي" لتجاوزه)',
+  reward:        '💰 أدخل *قيمة المكافأة* (رقم):',
+  maxPerUser:    '👤 أدخل *الحد الأقصى للتسليم لكل مستخدم* (0 = غير محدود):',
+  status:        '🔘 هل المهمة *مفتوحة* الآن؟',
 };
 
 async function handleCreateTask(bot, msg, adminId, session) {
@@ -667,30 +824,37 @@ async function handleCreateTask(bot, msg, adminId, session) {
   const step   = session.step;
   const data   = session.data;
 
-  if (step === 'name') {
-    if (!msg.text?.trim()) return bot.sendMessage(chatId, '⚠️ الاسم لا يمكن أن يكون فارغاً.');
-    data.name = msg.text.trim();
-    setSession(adminId, 'create_task', 'shortDesc', data);
-    return bot.sendMessage(chatId, CREATE_PROMPTS.shortDesc, { parse_mode: 'Markdown' });
-  }
+  // الحقول النصية الثنائية (ar/en)
+  const textSteps = {
+    name_ar:      { field: 'name',      lang: 'ar', next: 'name_en'      },
+    name_en:      { field: 'name',      lang: 'en', next: 'shortDesc_ar' },
+    shortDesc_ar: { field: 'shortDesc', lang: 'ar', next: 'shortDesc_en' },
+    shortDesc_en: { field: 'shortDesc', lang: 'en', next: 'fullDesc_ar'  },
+    fullDesc_ar:  { field: 'fullDesc',  lang: 'ar', next: 'fullDesc_en'  },
+    fullDesc_en:  { field: 'fullDesc',  lang: 'en', next: 'video'        },
+  };
 
-  if (step === 'shortDesc') {
-    data.shortDesc = msg.text?.trim() || '';
-    setSession(adminId, 'create_task', 'fullDesc', data);
-    return bot.sendMessage(chatId, CREATE_PROMPTS.fullDesc, { parse_mode: 'Markdown' });
-  }
-
-  if (step === 'fullDesc') {
-    data.fullDesc = msg.text?.trim() || '';
-    setSession(adminId, 'create_task', 'video', data);
-    return bot.sendMessage(chatId, CREATE_PROMPTS.video, { parse_mode: 'Markdown' });
+  if (textSteps[step]) {
+    const { field, lang, next } = textSteps[step];
+    const value = msg.text?.trim();
+    if (!value) return bot.sendMessage(chatId, '⚠️ لا يمكن أن تكون فارغة.');
+    // نبني i18n object تدريجياً
+    if (!data[field] || typeof data[field] === 'string') data[field] = {};
+    data[field][lang] = value;
+    setSession(adminId, 'create_task', next, data);
+    return bot.sendMessage(chatId, CREATE_PROMPTS[next], { parse_mode: 'Markdown' });
   }
 
   if (step === 'video') {
     if (msg.video) {
       data.videoFileId = msg.video.file_id;
-    } else {
+    } else if (msg.text && /^(تخطي|skip)$/i.test(msg.text.trim())) {
       data.videoFileId = null;
+    } else {
+      return bot.sendMessage(chatId,
+        '🎥 أرسل فيديو أو اكتب "تخطي" لتجاوز هذه الخطوة.',
+        { reply_markup: cancelKeyboard('adm_tasks_list') }
+      );
     }
     setSession(adminId, 'create_task', 'reward', data);
     return bot.sendMessage(chatId, CREATE_PROMPTS.reward, { parse_mode: 'Markdown' });
@@ -712,8 +876,8 @@ async function handleCreateTask(bot, msg, adminId, session) {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
-          { text: '🟢 مفتوحة', callback_data: `adm_ct_status:open:${adminId}` },
-          { text: '🔴 مغلقة',  callback_data: `adm_ct_status:closed:${adminId}` },
+          { text: '🟢 مفتوحة', callback_data: `adm_ct_status:open` },
+          { text: '🔴 مغلقة',  callback_data: `adm_ct_status:closed` },
         ]],
       },
     });
@@ -725,18 +889,34 @@ async function handleCreateTask(bot, msg, adminId, session) {
 //  Edit Task Property Flow
 // ─────────────────────────────────────────────
 
-function startEditTaskProp(bot, chatId, adminId, taskId, prop) {
-  setSession(adminId, 'edit_task_prop', 'waiting', { taskId, prop });
-  const prompt = PROP_LABELS[prop] || `أدخل قيمة جديدة لـ ${prop}:`;
-  bot.sendMessage(chatId, `✏️ *${prompt}*`, {
-    parse_mode: 'Markdown',
-    reply_markup: cancelKeyboard(`adm_edit_task:${taskId}`),
-  });
+function startEditTaskProp(bot, chatId, adminId, taskId, prop, lang = null) {
+  setSession(adminId, 'edit_task_prop', 'waiting', { taskId, prop, lang });
+  const propLabel = PROP_LABELS[prop] || prop;
+  const langLabel = lang ? ` (${LANG_LABELS[lang] || lang})` : '';
+  const prompt = `✏️ *${propLabel}${langLabel}*`;
+  const backCb = `adm_edit_task:${sh(taskId)}`;  // short ID للـ callback limit
+
+  if (lang && I18N_FIELDS.includes(prop)) {
+    const task    = db.getTask(taskId);
+    const current = db.getTaskText(task, prop, lang);
+    bot.sendMessage(chatId, prompt, {
+      parse_mode: 'Markdown',
+      reply_markup: cancelKeyboard(backCb),
+    });
+    if (current) {
+      bot.sendMessage(chatId, `📌 الحالي:\n${current}`);
+    }
+  } else {
+    bot.sendMessage(chatId, prompt, {
+      parse_mode: 'Markdown',
+      reply_markup: cancelKeyboard(backCb),
+    });
+  }
 }
 
 async function handleEditTaskProp(bot, msg, adminId, session) {
   const chatId = msg.chat.id;
-  const { taskId, prop } = session.data;
+  const { taskId, prop, lang } = session.data;
 
   let value;
 
@@ -748,20 +928,32 @@ async function handleEditTaskProp(bot, msg, adminId, session) {
     } else {
       return bot.sendMessage(chatId, '⚠️ أرسل فيديو أو اكتب "حذف" لإزالة الفيديو الحالي.');
     }
+    db.updateTask(taskId, { [prop]: value });
   } else if (prop === 'reward' || prop === 'order') {
     value = parseFloat(msg.text);
     if (isNaN(value)) return bot.sendMessage(chatId, '⚠️ أدخل رقماً صحيحاً.');
+    db.updateTask(taskId, { [prop]: value });
   } else if (prop === 'maxPerUser') {
     const v = parseInt(msg.text);
     value = (!isNaN(v) && v > 0) ? v : null;
+    db.updateTask(taskId, { [prop]: value });
+  } else if (lang && I18N_FIELDS.includes(prop)) {
+    // حقل i18n — نستخدم setTaskText
+    value = msg.text?.trim();
+    if (!value) return bot.sendMessage(chatId, '⚠️ القيمة لا يمكن أن تكون فارغة.');
+    db.setTaskText(taskId, prop, lang, value);
   } else {
     value = msg.text?.trim();
     if (!value) return bot.sendMessage(chatId, '⚠️ القيمة لا يمكن أن تكون فارغة.');
+    db.updateTask(taskId, { [prop]: value });
   }
 
-  db.updateTask(taskId, { [prop]: value });
   clearSession(adminId);
-  bot.sendMessage(chatId, `✅ تم تحديث *${PROP_LABELS[prop] || prop}* بنجاح.`, { parse_mode: 'Markdown' });
+  const langLabel = lang ? ` (${LANG_LABELS[lang] || lang})` : '';
+  bot.sendMessage(chatId,
+    `✅ تم تحديث *${PROP_LABELS[prop] || prop}${langLabel}* بنجاح.`,
+    { parse_mode: 'Markdown' }
+  );
   sendTaskDetail(bot, chatId, taskId);
 }
 
@@ -771,8 +963,8 @@ async function handleEditTaskProp(bot, msg, adminId, session) {
 // steps: label → type → required
 
 function startAddField(bot, chatId, adminId, taskId) {
-  setSession(adminId, 'add_field', 'label', { taskId });
-  bot.sendMessage(chatId, '➕ *إضافة حقل جديد*\n\n✏️ أدخل *اسم الحقل* (مثال: البريد الإلكتروني):', {
+  setSession(adminId, 'add_field', 'label_ar', { taskId });
+  bot.sendMessage(chatId, '➕ *إضافة حقل جديد*\n\n✏️ أدخل *اسم الحقل بالعربي* (مثال: البريد الإلكتروني):', {
     parse_mode: 'Markdown',
     reply_markup: cancelKeyboard(`adm_fields:${sh(taskId)}`),
   });
@@ -783,16 +975,26 @@ async function handleAddField(bot, msg, adminId, session) {
   const step   = session.step;
   const data   = session.data;
 
-  if (step === 'label') {
+  if (step === 'label_ar') {
     if (!msg.text?.trim()) return bot.sendMessage(chatId, '⚠️ الاسم لا يمكن أن يكون فارغاً.');
-    data.label = msg.text.trim();
+    data.label = { ar: msg.text.trim(), en: '' };
+    setSession(adminId, 'add_field', 'label_en', data);
+    return bot.sendMessage(chatId, '✏️ Enter the *field name in English*:', {
+      parse_mode: 'Markdown',
+      reply_markup: cancelKeyboard(`adm_fields:${sh(data.taskId)}`),
+    });
+  }
+
+  if (step === 'label_en') {
+    if (!msg.text?.trim()) return bot.sendMessage(chatId, '⚠️ Cannot be empty.');
+    data.label.en = msg.text.trim();
     setSession(adminId, 'add_field', 'type', data);
     return bot.sendMessage(chatId, '🔠 اختر *نوع الحقل:*', {
       parse_mode: 'Markdown',
       reply_markup: {
-        inline_keyboard: db.FIELD_TYPES.reduce((rows, t, i) => {
+        inline_keyboard: db.FIELD_TYPES.reduce((rows, tp, i) => {
           if (i % 3 === 0) rows.push([]);
-          rows[rows.length - 1].push({ text: t, callback_data: `adm_af_type:${t}:${adminId}` });
+          rows[rows.length - 1].push({ text: tp, callback_data: `adm_af_type:${tp}` });
           return rows;
         }, []),
       },
@@ -811,7 +1013,15 @@ function startEditFieldProp(bot, chatId, adminId, taskId, fieldId, prop) {
     });
   }
   setSession(adminId, 'edit_field_prop', 'waiting', { taskId, fieldId, prop });
-  bot.sendMessage(chatId, `✏️ أدخل القيمة الجديدة لـ *${prop === 'label' ? 'اسم الحقل' : prop}*:`, {
+  const task  = db.getTask(taskId);
+  const field = task?.fields.find(f => f.id === fieldId);
+  const cur   = prop === 'label_ar'
+    ? (typeof field?.label === 'object' ? field.label.ar : field?.label) || ''
+    : prop === 'label_en'
+    ? (typeof field?.label === 'object' ? field.label.en : field?.label) || ''
+    : '';
+  const hint  = prop === 'label_ar' ? '✏️ أدخل الاسم الجديد بالعربي:' : '✏️ Enter the new name in English:';
+  bot.sendMessage(chatId, `${hint}\n\n📌 الحالي: \`${cur || '—'}\``, {
     parse_mode: 'Markdown',
     reply_markup: cancelKeyboard(`adm_fd:${sh(taskId)}:${sh(fieldId)}`),
   });
@@ -822,7 +1032,20 @@ async function handleEditFieldProp(bot, msg, adminId, session) {
   const { taskId, fieldId, prop } = session.data;
   const value = msg.text?.trim();
   if (!value) return bot.sendMessage(chatId, '⚠️ القيمة لا يمكن أن تكون فارغة.');
-  db.updateField(taskId, fieldId, { [prop]: value });
+
+  if (prop === 'label_ar' || prop === 'label_en') {
+    const task  = db.getTask(taskId);
+    const field = task?.fields.find(f => f.id === fieldId);
+    const lang  = prop === 'label_ar' ? 'ar' : 'en';
+    const currentLabel = typeof field?.label === 'object'
+      ? { ...field.label }
+      : { ar: field?.label || '', en: field?.label || '' };
+    currentLabel[lang] = value;
+    db.updateField(taskId, fieldId, { label: currentLabel });
+  } else {
+    db.updateField(taskId, fieldId, { [prop]: value });
+  }
+
   clearSession(adminId);
   bot.sendMessage(chatId, '✅ تم التحديث بنجاح.');
   sendFieldDetail(bot, chatId, taskId, fieldId);
@@ -856,16 +1079,16 @@ function handleCallbackExtras(bot, query) {
   // اختيار حالة المهمة الجديدة
   if (data.startsWith('adm_ct_status:')) {
     bot.answerCallbackQuery(query.id);
-    const [, , status] = data.split(':');
+    const status = data.split(':')[1];  // 'open' | 'closed'
     const session = getSession(adminId);
-    if (!session || session.flow !== 'create_task') return;
+    if (!session || session.flow !== 'create_task') return false;
     session.data.isOpen = (status === 'open');
     // حفظ المهمة
     const task = db.createTask(session.data);
     clearSession(adminId);
     bot.sendMessage(
       chatId,
-      `✅ *تم إنشاء المهمة بنجاح!*\n\n🆔 \`${task.id}\`\n📌 ${task.name}\n\nيمكنك الآن إضافة الحقول المطلوبة:`,
+      `✅ *تم إنشاء المهمة بنجاح!*\n\n🆔 \`${task.id}\`\n📌 ${db.getTaskText(task, 'name', 'ar')}\n\nيمكنك الآن إضافة الحقول المطلوبة:`,
       {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[
@@ -891,17 +1114,17 @@ function handleCallbackExtras(bot, query) {
   // اختيار نوع الحقل الجديد
   if (data.startsWith('adm_af_type:')) {
     bot.answerCallbackQuery(query.id);
-    const [, type] = data.split(':');
+    const type = data.split(':')[1];
     const session = getSession(adminId);
-    if (!session || session.flow !== 'add_field') return;
+    if (!session || session.flow !== 'add_field') return false;
     session.data.type = type;
     setSession(adminId, 'add_field', 'required', session.data);
     bot.sendMessage(chatId, `✅ النوع: *${type}*\n\nهل الحقل إجباري؟`, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
-          { text: '🔴 إجباري',   callback_data: `adm_af_req:true:${adminId}` },
-          { text: '🟡 اختياري', callback_data: `adm_af_req:false:${adminId}` },
+          { text: '🔴 إجباري',   callback_data: `adm_af_req:true`  },
+          { text: '🟡 اختياري', callback_data: `adm_af_req:false` },
         ]],
       },
     });
@@ -911,9 +1134,9 @@ function handleCallbackExtras(bot, query) {
   // اختيار إلزامية الحقل الجديد
   if (data.startsWith('adm_af_req:')) {
     bot.answerCallbackQuery(query.id);
-    const [, req] = data.split(':');
+    const req = data.split(':')[1];  // 'true' | 'false'
     const session = getSession(adminId);
-    if (!session || session.flow !== 'add_field') return;
+    if (!session || session.flow !== 'add_field') return false;
     const { taskId, label, type } = session.data;
     const field = db.addField(taskId, { label, type, required: req === 'true' });
     clearSession(adminId);

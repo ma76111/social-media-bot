@@ -11,8 +11,10 @@ const withdrawHandler = require('./handlers/withdraw');
 const onboarding      = require('./handlers/onboarding');
 const adminUsersH     = require('./handlers/adminUsers');
 const featuresHandler = require('./handlers/features');
+const adminSettingsH  = require('./handlers/adminSettings');
 const rateLimiter     = require('./utils/rateLimiter');
 const { startAutoRefresh, getUsdtEgpRate, getCachedRate } = require('./utils/price');
+const { escMd } = require('./utils/escMd');
 
 // ─────────────────────────────────────────────
 //  Validation
@@ -61,6 +63,10 @@ const CB_NAV_PREFIXES = [
   'adm_tasks_list','wda_menu',    'wda_list:',   'wda_detail:',
   'adm_task:',     'adm_fields:', 'feat_list:',  'feat_detail:',
   'subs_list:',    'usr_view:',   'adm_refresh_rate',
+  'task_cancel_detail',
+  'adm_alt:',
+  'cfg_menu',      'cfg_back',    'cfg_edit:',
+  'adm_preview:',  'adm_preview_lang:',  // معاينة المهمة
 ];
 
 function _isNavCb(data) {
@@ -107,6 +113,7 @@ function adminMenuKeyboard() {
         [{ text: '📋 إدارة المهام' }, { text: '➕ مهمة جديدة'  }],
         [{ text: '📊 إحصائيات'    }, { text: '📤 طلبات السحب' }],
         [{ text: '👥 المستخدمون'  }, { text: '💱 سعر الصرف'   }],
+        [{ text: '⚙️ الإعدادات'   }],
       ],
       resize_keyboard: true,
     },
@@ -117,6 +124,8 @@ const ADMIN_ONLY_TEXTS = [
   '📋 إدارة المهام', '➕ مهمة جديدة',
   '📊 إحصائيات',     '📤 طلبات السحب',
   '👥 المستخدمون',   '💱 سعر الصرف',
+  '⚙️ الإعدادات',
+  '⚙️ إعدادات النظام', '📨 إرسال رسالة',
 ];
 
 // ─────────────────────────────────────────────
@@ -126,7 +135,7 @@ bot.onText(/\/start/, (msg) => {
   if (isAdmin(msg.from.id)) {
     return bot.sendMessage(
       msg.chat.id,
-      `👨‍💼 *أهلاً ${msg.from.first_name}!*\n\nأنت مسجل كأدمن.`,
+      `👨‍💼 *أهلاً ${escMd(msg.from.first_name)}!*\n\nأنت مسجل كأدمن.`,
       { parse_mode: 'Markdown', ...adminMenuKeyboard() }
     );
   }
@@ -211,24 +220,37 @@ bot.on('callback_query', async (query) => {
 bot.onText(/💱 سعر الصرف/, async (msg) => {
   if (!isAdmin(msg.from.id)) return;
 
-  const cached = getCachedRate();
-  const age    = Math.round((Date.now() - (cached._fetchedAt || 0)) / 1000);
+  // رسالة مؤقتة أثناء الجلب
+  const loadingMsg = await bot.sendMessage(msg.chat.id, '⏳ جاري جلب السعر...');
 
-  // نبعت الـ cache فوراً
-  const cachedMsg = await bot.sendMessage(
-    msg.chat.id,
-    `💱 *سعر الصرف الحالي*\n\n` +
-    `1 USDT = *${cached} EGP*\n` +
-    `🕐 _آخر تحديث: من الـ cache_`,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '🔄 تحديث الآن', callback_data: 'adm_refresh_rate' },
-        ]],
-      },
-    }
-  );
+  try {
+    const rate = await getUsdtEgpRate();
+    const now  = new Date().toLocaleTimeString('ar-EG', {
+      timeZone: 'Africa/Cairo',
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    bot.editMessageText(
+      `💱 *سعر الصرف الحالي*\n\n` +
+      `1 USDT = *${rate} EGP*\n` +
+      `🕐 _آخر تحديث: ${now} (Cairo)_`,
+      {
+        chat_id:    msg.chat.id,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🔄 تحديث الآن', callback_data: 'adm_refresh_rate' },
+          ]],
+        },
+      }
+    ).catch(() => {});
+  } catch {
+    bot.editMessageText('❌ فشل جلب السعر، حاول مرة أخرى.', {
+      chat_id:    msg.chat.id,
+      message_id: loadingMsg.message_id,
+    }).catch(() => {});
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -255,12 +277,13 @@ bot.onText(/\/cancel/, (msg) => {
 //  Register handlers  (الترتيب مهم)
 // ─────────────────────────────────────────────
 
-userHandler.register(bot);
+userHandler.register(bot, ADMIN_IDS);
 adminTasksH.register(bot, isAdmin);
 adminSubsH.register(bot, isAdmin);
 withdrawHandler.register(bot, isAdmin);
 adminUsersH.register(bot, isAdmin);
 featuresHandler.register(bot, isAdmin);
+adminSettingsH.register(bot, isAdmin, adminMenuKeyboard().reply_markup);
 
 // onboarding — يمرر sendHome كـ callback بعد اكتمال الإعداد
 onboarding.register(bot, (bot_, chatId, userId, firstName) => {
@@ -270,6 +293,15 @@ onboarding.register(bot, (bot_, chatId, userId, firstName) => {
 // /start للمستخدم العادي
 bot.onText(/\/start/, (msg) => {
   if (isAdmin(msg.from.id)) return;
+
+  // فحص الصيانة
+  const botEnabled = db.getSetting('botEnabled');
+  if (!botEnabled) {
+    const mainMsg = db.getSetting('maintenanceMsg');
+    return bot.sendMessage(msg.chat.id,
+      mainMsg || '🔧 البوت في وضع الصيانة حالياً، يرجى المحاولة لاحقاً.'
+    );
+  }
 
   // حفظ بيانات المستخدم
   db.getUser(msg.from.id);
@@ -284,7 +316,7 @@ bot.onText(/\/start/, (msg) => {
   if (user.isBanned) {
     return bot.sendMessage(
       msg.chat.id,
-      `🚫 *تم حظر حسابك*\n${user.banReason ? `📝 السبب: ${user.banReason}` : ''}\n\nللاستفسار تواصل مع الإدارة.`,
+      `🚫 *تم حظر حسابك*\n${user.banReason ? `📝 السبب: ${escMd(user.banReason)}` : ''}\n\nللاستفسار تواصل مع الإدارة.`,
       { parse_mode: 'Markdown' }
     );
   }
@@ -300,14 +332,42 @@ bot.onText(/\/start/, (msg) => {
 //  Error handling
 // ─────────────────────────────────────────────
 bot.on('polling_error', (err) => {
-  // ECONNRESET / EFATAL = انقطاع مؤقت في الاتصال — البوت يعيد المحاولة تلقائياً
   if (err.code === 'EFATAL' || err.code === 'ECONNRESET' || err.message?.includes('ECONNRESET')) {
     console.warn(`[Polling] انقطاع مؤقت: ${err.message} — سيعاد الاتصال تلقائياً`);
     return;
   }
   console.error('Polling error:', err.code, err.message);
 });
-bot.on('error',         (err) => console.error('Bot error:',    err.message));
+bot.on('error', (err) => console.error('Bot error:', err.message));
 process.on('unhandledRejection', (r) => console.error('Unhandled:', r));
+
+// ─────────────────────────────────────────────
+//  Graceful Shutdown
+//  لما البوت يتوقف (SIGINT / SIGTERM / SIGHUP)
+//  ينظف الـ sessions ويوقف الـ polling بشكل نظيف
+// ─────────────────────────────────────────────
+let _isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (_isShuttingDown) return;
+  _isShuttingDown = true;
+
+  console.log(`\n⚠️  [${signal}] جاري إيقاف البوت بشكل نظيف...`);
+
+  try {
+    // أوقف الـ polling
+    await bot.stopPolling({ cancel: true });
+    console.log('✅ Polling stopped');
+  } catch (e) {
+    console.warn('⚠️ Error stopping polling:', e.message);
+  }
+
+  console.log('👋 البوت توقف بنجاح.');
+  process.exit(0);
+}
+
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGHUP',  () => gracefulShutdown('SIGHUP'));
 
 console.log(`✅ البوت يعمل | الأدمنز: [${ADMIN_IDS.join(', ') || 'لا يوجد'}]`);

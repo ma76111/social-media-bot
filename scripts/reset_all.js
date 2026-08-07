@@ -115,16 +115,17 @@ async function main() {
   }
 
   // ── نسخة احتياطية ─────────────────────────
-  const backupRoot = path.join(DATA_DIR, 'backups', `full_reset_${nowTs()}`);
+  const ts         = nowTs();
+  const backupRoot = path.join(DATA_DIR, 'backups', `full_reset_${ts}`);
   fs.mkdirSync(backupRoot, { recursive: true });
 
   if (fileExists(USERS_FILE))   fs.copyFileSync(USERS_FILE,   path.join(backupRoot, 'users.json'));
   if (fileExists(COUNTER_FILE)) fs.copyFileSync(COUNTER_FILE, path.join(backupRoot, 'counter.json'));
   if (fileExists(WD_FILE))      fs.copyFileSync(WD_FILE,      path.join(backupRoot, 'withdrawals.json'));
-  if (fileExists(TASKS_DIR))    copyDir(TASKS_DIR, path.join(backupRoot, 'tasks'));
+  if (fileExists(TASKS_DIR))    copyDir(TASKS_DIR,   path.join(backupRoot, 'tasks'));
   if (fileExists(EXPORTS_DIR))  copyDir(EXPORTS_DIR, path.join(backupRoot, 'exports'));
 
-  console.log(`\n💾 نسخة احتياطية: data/backups/full_reset_${nowTs()}/`);
+  console.log(`\n💾 نسخة احتياطية: data/backups/full_reset_${ts}/`);
 
   // ── مسح ──────────────────────────────────
   // users.json

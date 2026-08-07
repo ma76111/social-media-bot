@@ -121,7 +121,7 @@ function exportUnexported(taskId, n = null) {
   if (n) subs = subs.slice(0, n);
   if (!subs.length) return { filePath: null, count: 0 };
 
-  const filePath = buildFile(subs, fields, exportFilePath(taskId, task.name));
+  const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar')));
   db.setExported(taskId, subs.map(s => s.id), 1);
   return { filePath, count: subs.length };
 }
@@ -140,7 +140,7 @@ function exportForReview(taskId, status = null, n = null) {
   if (!subs.length) return { filePath: null, count: 0 };
 
   const suffix = status ? `_${status}` : '_review';
-  const filePath = buildFile(subs, fields, exportFilePath(taskId, task.name, suffix));
+  const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar'), suffix));
   // لا نغيّر exported — للمراجعة فقط
   return { filePath, count: subs.length };
 }
@@ -158,7 +158,7 @@ async function sendApprovedAndNotify(bot, taskId, notifyApprovedFn) {
   const subs = db.getSubmissions(taskId, 'approved');
   if (!subs.length) return { filePath: null, count: 0 };
 
-  const filePath = buildFile(subs, fields, exportFilePath(taskId, task.name, '_approved'));
+  const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar'), '_approved'));
 
   // إضافة رصيد وإشعار لكل مستخدم — مع مراعاة rewardOverride
   for (const sub of subs) {
@@ -186,7 +186,7 @@ async function sendRejectedAndNotify(bot, taskId, notifyRejectedFn, reason = nul
   const subs = db.getSubmissions(taskId, 'rejected');
   if (!subs.length) return { filePath: null, count: 0 };
 
-  const filePath = buildFile(subs, fields, exportFilePath(taskId, task.name, '_rejected'));
+  const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar'), '_rejected'));
 
   for (const sub of subs) {
     if (notifyRejectedFn) await notifyRejectedFn(bot, sub, task, reason || sub.rejectReason);
@@ -225,7 +225,7 @@ function exportSubmissions(taskId, submissionIds) {
     .map(id => task.submissions.find(s => s.id === id))
     .filter(Boolean);
   if (!subs.length) return { filePath: null, count: 0 };
-  const filePath = buildFile(subs, fields, exportFilePath(taskId, task.name));
+  const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar')));
   db.setExported(taskId, subs.map(s => s.id), 1);
   return { filePath, count: subs.length };
 }

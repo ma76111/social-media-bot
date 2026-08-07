@@ -28,21 +28,23 @@ const BTN_CUR_USDT  = CURRENCY_NAMES.usdt; // 'USDT 🟡'
 //  Keyboards (reply keyboards)
 // ─────────────────────────────────────────────
 
-function langReplyKeyboard() {
+function langReplyKeyboard(lang = 'ar', showCancel = false) {
+  const cancelText = lang === 'ar' ? '❌ إلغاء' : '❌ Cancel';
+  const rows = [[{ text: BTN_LANG_AR }, { text: BTN_LANG_EN }]];
+  if (showCancel) rows.push([{ text: cancelText }]);
   return {
-    keyboard: [
-      [{ text: BTN_LANG_AR }, { text: BTN_LANG_EN }],
-    ],
+    keyboard: rows,
     resize_keyboard: true,
     one_time_keyboard: true,
   };
 }
 
-function currencyReplyKeyboard() {
+function currencyReplyKeyboard(lang = 'ar', showCancel = false) {
+  const cancelText = lang === 'ar' ? '❌ إلغاء' : '❌ Cancel';
+  const rows = [[{ text: BTN_CUR_EGP }, { text: BTN_CUR_USDT }]];
+  if (showCancel) rows.push([{ text: cancelText }]);
   return {
-    keyboard: [
-      [{ text: BTN_CUR_EGP }, { text: BTN_CUR_USDT }],
-    ],
+    keyboard: rows,
     resize_keyboard: true,
     one_time_keyboard: true,
   };
@@ -62,11 +64,11 @@ function settingsInlineKeyboard(lang) {
 //  Onboarding flow
 // ─────────────────────────────────────────────
 
-function sendLangChoice(bot, chatId) {
+function sendLangChoice(bot, chatId, lang = 'ar') {
   bot.sendMessage(
     chatId,
-    t('welcome_lang', 'ar'),
-    { parse_mode: 'Markdown', reply_markup: langReplyKeyboard() }
+    '🌐 اختر لغتك / Choose your language:',
+    { reply_markup: langReplyKeyboard(lang) }
   );
 }
 
@@ -74,7 +76,7 @@ function sendCurrencyChoice(bot, chatId, lang) {
   bot.sendMessage(
     chatId,
     t('welcome_currency', lang),
-    { parse_mode: 'Markdown', reply_markup: currencyReplyKeyboard() }
+    { parse_mode: 'Markdown', reply_markup: currencyReplyKeyboard(lang) }
   );
 }
 
@@ -111,6 +113,10 @@ function register(bot, onDone) {
     if (!user.lang && (text === BTN_LANG_AR || text === BTN_LANG_EN)) {
       const lang = text === BTN_LANG_AR ? 'ar' : 'en';
       db.updateUserSettings(userId, { lang });
+
+      // رسالة الترحيب الكاملة بلغته بعد الاختيار
+      await bot.sendMessage(msg.chat.id, t('welcome_lang', lang), { parse_mode: 'Markdown' });
+
       // إذا عنده عملة مسبقاً → اكتمل الـ onboarding
       if (user.currency) {
         await bot.sendMessage(msg.chat.id, t('onboarding_done', lang), { parse_mode: 'Markdown' });
@@ -145,9 +151,8 @@ function register(bot, onDone) {
       const lang = db.getUser(userId).lang || 'ar';
       bot.sendMessage(chatId, t('settings_lang_q', lang), {
         parse_mode: 'Markdown',
-        reply_markup: langReplyKeyboard(),
+        reply_markup: langReplyKeyboard(lang, true),  // showCancel = true في الـ settings
       });
-      // نضع المستخدم في حالة تغيير اللغة مؤقتاً
       _pendingLangChange.set(userId, Date.now());
       return;
     }
@@ -158,7 +163,7 @@ function register(bot, onDone) {
       const lang = db.getUser(userId).lang || 'ar';
       bot.sendMessage(chatId, t('settings_currency_q', lang), {
         parse_mode: 'Markdown',
-        reply_markup: currencyReplyKeyboard(),
+        reply_markup: currencyReplyKeyboard(lang, true),  // showCancel = true في الـ settings
       });
       _pendingCurChange.set(userId, Date.now());
       return;
@@ -170,6 +175,21 @@ function register(bot, onDone) {
     const userId = msg.from.id;
     const text   = msg.text;
     if (!text) return;
+
+    const cancelTexts = ['❌ إلغاء', '❌ Cancel'];
+
+    // إلغاء تغيير اللغة أو العملة
+    if (cancelTexts.includes(text) && (_pendingLangChange.has(userId) || _pendingCurChange.has(userId))) {
+      _pendingLangChange.delete(userId);
+      _pendingCurChange.delete(userId);
+      const lang = db.getUser(userId).lang || 'ar';
+      await bot.sendMessage(msg.chat.id,
+        lang === 'ar' ? '❌ تم إلغاء التغيير.' : '❌ Change cancelled.',
+        { reply_markup: { remove_keyboard: true } }
+      );
+      sendSettingsPage(bot, msg.chat.id, userId);
+      return;
+    }
 
     // تغيير اللغة
     if (_pendingLangChange.has(userId) && (text === BTN_LANG_AR || text === BTN_LANG_EN)) {

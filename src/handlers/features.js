@@ -182,7 +182,7 @@ async function handleAdminText(bot, msg, adminId) {
       { parse_mode: 'Markdown' }
     );
     const task = db.getTask(data.taskId);
-    return bot.sendMessage(chatId, `🎯 ميزات المهمة "${task.name}":`, {
+    return bot.sendMessage(chatId, `🎯 ميزات المهمة "${db.getTaskText(task, 'name', 'ar')}":`, {
       reply_markup: featuresListKeyboard(task),
     });
   }
@@ -253,7 +253,7 @@ function register(bot, isAdmin) {
       const taskId = expandTaskId(data.split(':')[1]);
       const task   = db.getTask(taskId);
       if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
-      bot.sendMessage(chatId, `🎯 *ميزات المهمة "${task.name}"* (${(task.features||[]).length}):`, {
+      bot.sendMessage(chatId, `🎯 *ميزات المهمة "${db.getTaskText(task, 'name', 'ar')}"* (${(task.features||[]).length}):`, {
         parse_mode: 'Markdown',
         reply_markup: featuresListKeyboard(task),
       });

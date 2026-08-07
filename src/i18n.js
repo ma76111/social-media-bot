@@ -22,6 +22,7 @@ const translations = {
   btn_pending:        { ar: '⏳ الأموال المعلقة', en: '⏳ Pending Earnings'  },
   btn_withdraw:       { ar: '💳 سحب',             en: '💳 Withdraw'         },
   btn_settings:       { ar: '⚙️ التفضيلات',       en: '⚙️ Preferences'      },
+  btn_myid:           { ar: '🆔 معرفي',           en: '🆔 My ID'            },
 
   // ──────────────────────────────────────────
   //  MESSAGES
@@ -161,12 +162,24 @@ const translations = {
   settings_currency_q:{ ar: 'اختر العملة المفضلة:',         en: 'Choose preferred currency:'   },
   settings_saved:     { ar: '✅ تم حفظ التفضيلات.',          en: '✅ Preferences saved.'            },
 
+  notify_banned: {
+    ar: (reason) => `🚫 *تم حظر حسابك*\n${reason ? `📝 السبب: ${reason}\n` : ''}\nللاستفسار تواصل مع الإدارة.`,
+    en: (reason) => `🚫 *Your account has been banned*\n${reason ? `📝 Reason: ${reason}\n` : ''}\nContact support for more info.`,
+  },
+  notify_unbanned: {
+    ar: '✅ *تم رفع الحظر عن حسابك.*\nيمكنك الآن استخدام البوت مجدداً. 🎉',
+    en: '✅ *Your account ban has been lifted.*\nYou can now use the bot again. 🎉',
+  },
+  notify_approaching_limit: {
+    ar: (task, remaining) => `⚠️ *تنبيه!*\n\n📌 المهمة: *${task}*\nلديك *${remaining}* تسليم متبقي فقط في هذه المهمة.\nاستغل الفرصة قبل انتهاء الحد! 🔥`,
+    en: (task, remaining) => `⚠️ *Heads up!*\n\n📌 Task: *${task}*\nYou have only *${remaining}* submission(s) left for this task.\nMake the most of it! 🔥`,
+  },
   // notifications (submission)
-  notify_approved:    {
+  notify_approved: {
     ar: (task, id, r, s) => `🎊 *مبروك! تم قبول تسليمك!* 🔥\n\n📌 المهمة: *${task}*\n🆔 التسليم: \`${id}\`\n💰 المكافأة: \`${r} ${s}\` ✅ تمت إضافتها لرصيدك!\n\n💸 استمر وكسب أكتر! 🚀`,
     en: (task, id, r, s) => `🎊 *Congratulations! Submission approved!* 🔥\n\n📌 Task: *${task}*\n🆔 ID: \`${id}\`\n💰 Reward: \`${r} ${s}\` ✅ Added to your balance!\n\n💸 Keep going and earn more! 🚀`,
   },
-  notify_rejected:    {
+  notify_rejected: {
     ar: (task, id, reason) => `❌ *تم رفض تسليمك*\n\n📌 المهمة: *${task}*\n🆔 التسليم: \`${id}\`\n${reason ? `📝 السبب: ${reason}\n` : ''}\n💡 راجع الشروط وحاول تاني، أنت قادر! 💪`,
     en: (task, id, reason) => `❌ *Submission rejected*\n\n📌 Task: *${task}*\n🆔 ID: \`${id}\`\n${reason ? `📝 Reason: ${reason}\n` : ''}\n💡 Review the requirements and try again, you got this! 💪`,
   },

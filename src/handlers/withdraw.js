@@ -5,6 +5,7 @@ const { t, currencySymbol, LANG_NAMES, CURRENCY_NAMES } = require('../i18n');
 const { formatAmount, getUsdtEgpRate } = require('../utils/price');
 const { notifyUser } = require('./user');
 const rateLimiter = require('../utils/rateLimiter');
+const { escMd } = require('../utils/escMd');
 
 // ─────────────────────────────────────────────
 //  Sessions
@@ -15,9 +16,10 @@ function getSession(id) { return sessions[id] || null; }
 function clearSession(id) { delete sessions[id]; }
 
 // ─────────────────────────────────────────────
-//  Constants
+//  Constants — تُقرأ من Settings ديناميكياً
 // ─────────────────────────────────────────────
-const MIN_WITHDRAWAL_EGP = 50;  // حد أدنى للسحب بالجنيه المصري
+function getMinWithdrawal() { return db.getSetting('minWithdrawal') || 50; }
+function getMaxWithdrawal() { return db.getSetting('maxWithdrawal') || 0; }
 
 // ─────────────────────────────────────────────
 //  Prefs helpers
@@ -29,11 +31,35 @@ function getCurrency(uid) { return db.getUser(uid).currency || 'egp'; }
 //  Method labels  (ثنائي اللغة)
 // ─────────────────────────────────────────────
 const METHOD_LABELS = {
-  cash_eg: { ar: '🏦 كاش مصري', en: '🏦 Egyptian Cash' },
-  binance: { ar: '🟡 Binance ID', en: '🟡 Binance ID'  },
+  cash_eg:    { ar: '🏦 كاش مصري',   en: '🏦 Egyptian Cash' },
+  binance:    { ar: '🟡 Binance ID',  en: '🟡 Binance ID'   },
+  usdt_trc20: { ar: '💎 USDT TRC20',  en: '💎 USDT TRC20'   },
+  usdt_bep20: { ar: '💎 USDT BEP20',  en: '💎 USDT BEP20'   },
 };
 function methodLabel(method, lang) {
   return METHOD_LABELS[method]?.[lang] || method;
+}
+function isUsdt(method) {
+  return method === 'usdt_trc20' || method === 'usdt_bep20';
+}
+
+// ─────────────────────────────────────────────
+//  Helper — صف طلب واحد في قائمة الأدمن
+// ─────────────────────────────────────────────
+function wdPendingRow(w, page) {
+  const netTag = isUsdt(w.method)
+    ? ` (${w.method === 'usdt_trc20' ? 'TRC20' : 'BEP20'})`
+    : '';
+  return [
+    {
+      text: `👤 ${w.username}  💰 ${w.amount} EGP  ${methodLabel(w.method, 'ar')}${netTag}`,
+      callback_data: `wda_detail:${w.id}:pending:${page}`,
+    },
+    {
+      text: '✅ تم الدفع',
+      callback_data: `wda_paid:${w.id}:${page}`,
+    },
+  ];
 }
 
 // ─────────────────────────────────────────────
@@ -44,7 +70,18 @@ function methodKeyboard(lang) {
     inline_keyboard: [
       [{ text: methodLabel('cash_eg', lang), callback_data: 'wd_method:cash_eg' }],
       [{ text: methodLabel('binance', lang), callback_data: 'wd_method:binance' }],
-      [{ text: t('btn_cancel', lang),        callback_data: 'wd_cancel'         }],
+      [{ text: lang === 'ar' ? '💎 USDT (TRC20 / BEP20)' : '💎 USDT (TRC20 / BEP20)', callback_data: 'wd_usdt_net' }],
+      [{ text: t('btn_cancel', lang), callback_data: 'wd_cancel' }],
+    ],
+  };
+}
+
+function usdtNetKeyboard(lang) {
+  return {
+    inline_keyboard: [
+      [{ text: '💎 TRC20 (Tron)', callback_data: 'wd_method:usdt_trc20' }],
+      [{ text: '💎 BEP20 (BSC)',  callback_data: 'wd_method:usdt_bep20' }],
+      [{ text: lang === 'ar' ? '🔙 رجوع' : '🔙 Back', callback_data: 'wd_back_method' }],
     ],
   };
 }
@@ -85,16 +122,7 @@ function wdPendingListKeyboard(list, page) {
   const safePage   = Math.max(0, Math.min(page, totalPages - 1));
   const slice      = list.slice(safePage * PAGE, (safePage + 1) * PAGE);
 
-  const rows = slice.map(w => [
-    {
-      text: `👤 ${w.username}  💰 ${w.amount} EGP  ${methodLabel(w.method, 'ar')}`,
-      callback_data: `wda_detail:${w.id}:pending:${safePage}`,
-    },
-    {
-      text: '✅ تم الدفع',
-      callback_data: `wda_paid:${w.id}:${safePage}`,
-    },
-  ]);
+  const rows = slice.map(w => wdPendingRow(w, safePage));
 
   // Navigation
   const nav = [];
@@ -136,16 +164,20 @@ function formatWdAdmin(wd, rate) {
   const usdtLine = rate
     ? `  ≈ \`${(wd.amount / rate).toFixed(4)} USDT\` (سعر: ${rate} EGP)\n`
     : '';
+  const networkLine = isUsdt(wd.method)
+    ? `🌐 الشبكة: *${wd.method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n`
+    : '';
   let text =
     `🆔 \`${wd.id.substring(0, 8)}\`\n` +
-    `👤 ${wd.username}  |  \`${wd.userId}\`\n` +
+    `👤 ${escMd(wd.username)}  |  \`${wd.userId}\`\n` +
     `💳 الطريقة: ${methodLabel(wd.method, 'ar')}\n` +
-    `📋 التفاصيل: \`${wd.details}\`\n` +
+    networkLine +
+    `📋 ${isUsdt(wd.method) ? 'العنوان' : 'التفاصيل'}: \`${escMd(wd.details)}\`\n` +
     `💰 المبلغ: *${wd.amount} EGP*\n` +
     usdtLine +
     `📅 ${wd.createdAt}\n` +
     `📌 الحالة: ${statusLabel[wd.status] || wd.status}`;
-  if (wd.rejectReason) text += `\n📝 سبب الرفض: ${wd.rejectReason}`;
+  if (wd.rejectReason) text += `\n📝 سبب الرفض: ${escMd(wd.rejectReason)}`;
   return text;
 }
 
@@ -200,12 +232,23 @@ async function handleWithdrawText(bot, msg, userId) {
       return bot.sendMessage(chatId, t('wd_insufficient', lang, balDisplay, symbol), { parse_mode: 'Markdown' });
     }
 
-    if (amountEgp < MIN_WITHDRAWAL_EGP) {
-      const { display: minDisplay, symbol: minSym } = await formatAmount(MIN_WITHDRAWAL_EGP, currency);
+    if (amountEgp < getMinWithdrawal()) {
+      const { display: minDisplay, symbol: minSym } = await formatAmount(getMinWithdrawal(), currency);
       return bot.sendMessage(chatId,
         lang === 'ar'
           ? `⚠️ الحد الأدنى للسحب هو \`${minDisplay} ${minSym}\`.`
           : `⚠️ Minimum withdrawal is \`${minDisplay} ${minSym}\`.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    const maxWd = getMaxWithdrawal();
+    if (maxWd > 0 && amountEgp > maxWd) {
+      const { display: maxDisplay, symbol: maxSym } = await formatAmount(maxWd, currency);
+      return bot.sendMessage(chatId,
+        lang === 'ar'
+          ? `⚠️ الحد الأقصى للسحب هو \`${maxDisplay} ${maxSym}\`.`
+          : `⚠️ Maximum withdrawal is \`${maxDisplay} ${maxSym}\`.`,
         { parse_mode: 'Markdown' }
       );
     }
@@ -218,10 +261,15 @@ async function handleWithdrawText(bot, msg, userId) {
 
     const { display: dispAmt, symbol: dispSym } = await formatAmount(amountEgp, currency);
 
+    const networkLine = isUsdt(data.method)
+      ? `${lang === 'ar' ? '🌐 الشبكة' : '🌐 Network'}: *${data.method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n`
+      : '';
+
     const summary =
       `${t('wd_review', lang)}\n` +
       `━━━━━━━━━━━━━━━━━━\n` +
       `${t('wd_method_lbl',  lang, methodLabel(data.method, lang))}\n` +
+      networkLine +
       `${t('wd_details_lbl', lang, data.details)}\n` +
       `${t('wd_amount_lbl',  lang, dispAmt, dispSym)}\n` +
       (currency === 'usdt' ? `  ≈ \`${amountEgp} EGP\` (سعر: ${rate})\n` : '') +
@@ -241,7 +289,6 @@ async function handleWithdrawText(bot, msg, userId) {
     const wd = db.updateWithdrawalStatus(data.wdId, 'rejected', reason);
     if (!wd) return bot.sendMessage(chatId, '⚠️ الطلب غير موجود.');
     bot.sendMessage(chatId, `❌ تم رفض الطلب \`${data.wdId.substring(0, 8)}\`.`, { parse_mode: 'Markdown' });
-    const rate = await getUsdtEgpRate();
     await notifyUser(bot, wd.userId,
       t('notify_wd_rejected', getLang(wd.userId),
         methodLabel(wd.method, getLang(wd.userId)),
@@ -325,15 +372,48 @@ function register(bot, isAdmin) {
     const chatId = query.message.chat.id;
     const lang   = getLang(userId);
 
-    // اختيار الطريقة
     if (data.startsWith('wd_method:')) {
       await bot.answerCallbackQuery(query.id);
       const method = data.split(':')[1];
-      const hint   = method === 'cash_eg'
-        ? t('wd_enter_phone', lang)
-        : t('wd_enter_binance', lang);
+      let hint;
+      if (method === 'cash_eg') {
+        hint = t('wd_enter_phone', lang);
+      } else if (method === 'binance') {
+        hint = t('wd_enter_binance', lang);
+      } else if (isUsdt(method)) {
+        const netName = method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)';
+        hint = lang === 'ar'
+          ? `💎 *شبكة ${netName}*\n\nأرسل عنوان محفظة USDT الخاصة بك على شبكة ${netName}:\n\n⚠️ تأكد أن العنوان صحيح وعلى الشبكة الصحيحة — أي خطأ قد يؤدي لضياع الأموال.`
+          : `💎 *${netName} Network*\n\nSend your USDT wallet address on ${netName}:\n\n⚠️ Make sure the address is correct and on the right network.`;
+      } else {
+        hint = t('wd_enter_binance', lang);
+      }
       setSession(userId, 'details', { method });
       bot.sendMessage(chatId, hint, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    // اختيار شبكة USDT
+    if (data === 'wd_usdt_net') {
+      await bot.answerCallbackQuery(query.id);
+      const msg = lang === 'ar'
+        ? '💎 *اختر شبكة USDT:*\n\n• *TRC20* — شبكة Tron (رسوم أقل)\n• *BEP20* — شبكة BSC (Binance Smart Chain)'
+        : '💎 *Select USDT network:*\n\n• *TRC20* — Tron network (lower fees)\n• *BEP20* — BSC (Binance Smart Chain)';
+      bot.sendMessage(chatId, msg, { parse_mode: 'Markdown', reply_markup: usdtNetKeyboard(lang) });
+      return;
+    }
+
+    // رجوع لاختيار الطريقة
+    if (data === 'wd_back_method') {
+      await bot.answerCallbackQuery(query.id);
+      clearSession(userId);
+      const user = db.getUser(userId);
+      const currency = getCurrency(userId);
+      const { display: bal, symbol } = await formatAmount(user.balance, currency);
+      bot.sendMessage(chatId,
+        `${t('wd_choose_method', lang)}`,
+        { parse_mode: 'Markdown', reply_markup: methodKeyboard(lang) }
+      );
       return;
     }
 
@@ -412,10 +492,14 @@ function register(bot, isAdmin) {
       const userLang = getLang(wd.userId);
       const userCur  = getCurrency(wd.userId);
       const { display, symbol } = await formatAmount(wd.amount, userCur);
+      const networkNote = isUsdt(wd.method)
+        ? `🌐 الشبكة: *${wd.method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n`
+        : '';
       await notifyUser(bot, wd.userId,
         `💸 *تم إرسال مبلغ سحبك!*\n\n` +
         `💰 المبلغ: *${display} ${symbol}*\n` +
         `💳 الطريقة: ${methodLabel(wd.method, userLang)}\n` +
+        networkNote +
         `📋 ${wd.details}\n\n` +
         `✅ *تأكد من وصول المبلغ في محفظتك.*\n` +
         `📞 لو في أي مشكلة تواصل مع الدعم.`
@@ -535,16 +619,7 @@ async function sendWdList(bot, chatId, status, page = 0) {
     const safePage   = Math.max(0, Math.min(page, totalPages - 1));
     const slice      = list.slice(safePage * PAGE, (safePage + 1) * PAGE);
 
-    const rows = slice.map(w => [
-      {
-        text: `👤 ${w.username}  💰 ${w.amount} EGP  ${methodLabel(w.method, 'ar')}`,
-        callback_data: `wda_detail:${w.id}:pending:${safePage}`,
-      },
-      {
-        text: '✅ تم الدفع',
-        callback_data: `wda_paid:${w.id}:${safePage}`,
-      },
-    ]);
+    const rows = slice.map(w => wdPendingRow(w, safePage));
 
     const nav = [];
     if (safePage > 0)              nav.push({ text: '◀️ السابق', callback_data: `wda_list:pending:${safePage - 1}` });
@@ -607,16 +682,7 @@ async function editWdPendingList(bot, chatId, messageId, page = 0) {
   const safePage   = Math.max(0, Math.min(page, totalPages - 1));
   const slice      = list.slice(safePage * PAGE, (safePage + 1) * PAGE);
 
-  const rows = slice.map(w => [
-    {
-      text: `👤 ${w.username}  💰 ${w.amount} EGP  ${methodLabel(w.method, 'ar')}`,
-      callback_data: `wda_detail:${w.id}:pending:${safePage}`,
-    },
-    {
-      text: '✅ تم الدفع',
-      callback_data: `wda_paid:${w.id}:${safePage}`,
-    },
-  ]);
+  const rows = slice.map(w => wdPendingRow(w, safePage));
 
   const nav = [];
   if (safePage > 0)              nav.push({ text: '◀️ السابق', callback_data: `wda_list:pending:${safePage - 1}` });
