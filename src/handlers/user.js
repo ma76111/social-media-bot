@@ -806,7 +806,7 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
       lang === 'ar'
         ? '⛔ *هذه البيانات مسجلة مسبقاً.*\n\nلا يمكن تسليم نفس البيانات أكثر من مرة.'
         : '⛔ *This data has already been submitted.*\n\nDuplicate submissions are not allowed.',
-      { parse_mode: 'Markdown', ...mainMenuKeyboardForUser(tasks, userId) }
+      { parse_mode: 'Markdown', ...await mainMenuKeyboardForUser(tasks, userId) }
     );
   }
 
@@ -816,11 +816,10 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
 
   const task = db.getTask(taskId);
   if (!task) {
-    // المهمة حُذفت بعد التسليم — التسليم محفوظ لكن لا يمكن الإشعار
     const tasks = db.listTasks(true);
     return bot.sendMessage(chatId, t('sub_success', lang, sub.id.substring(0, 8)), {
       parse_mode: 'Markdown',
-      ...mainMenuKeyboardForUser(tasks, userId),
+      ...await mainMenuKeyboardForUser(tasks, userId),
     });
   }
   const taskName = db.getTaskText(task, 'name', 'ar');
@@ -836,7 +835,7 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
     ).catch(() => {});
   }
 
-  // إشعار اقتراب الحد الأقصى (لو تبقى تسليم واحد فقط)
+  // إشعار اقتراب الحد الأقصى
   if (task?.maxPerUser) {
     const done      = db.countUserSubmissions(taskId, userId);
     const remaining = task.maxPerUser - done;
@@ -846,9 +845,10 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
   }
 
   const tasks = db.listTasks(true);
+  const kb    = await mainMenuKeyboardForUser(tasks, userId);
   bot.sendMessage(chatId, t('sub_success', lang, sub.id.substring(0, 8)), {
     parse_mode: 'Markdown',
-    ...mainMenuKeyboardForUser(tasks, userId),
+    ...kb,
   });
 }
 
