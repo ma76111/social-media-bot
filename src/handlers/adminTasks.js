@@ -187,16 +187,6 @@ function cancelKeyboard(backCb) {
   };
 }
 
-function yesNoKeyboard(yesCb, noCb) {
-  return {
-    inline_keyboard: [[
-      { text: '✅ نعم', callback_data: yesCb },
-      { text: '❌ لا', callback_data: noCb },
-    ]],
-  };
-}
-
-
 // ─────────────────────────────────────────────
 //  Helpers
 // ─────────────────────────────────────────────
@@ -803,8 +793,6 @@ function startCreateTask(bot, chatId, adminId) {
     reply_markup: cancelKeyboard('adm_tasks_list'),
   });
 }
-
-const CREATE_STEPS = ['name_ar','name_en','shortDesc_ar','shortDesc_en','fullDesc_ar','fullDesc_en','video','reward','maxPerUser','status'];
 
 const CREATE_PROMPTS = {
   name_ar:       '📝 أدخل *اسم المهمة* بالعربي:',

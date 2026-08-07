@@ -140,20 +140,6 @@ function userQuickKeyboard(userId, isBanned) {
   };
 }
 
-function usersListKeyboard(users, page, total) {
-  const totalPages = Math.ceil(total / USERS_PAGE);
-  const rows = users.map(u => [{
-    text: `#${u.uid} ${u.isBanned ? '🚫' : ''}  ${u.username ? '@' + u.username.replace(/^@/,'') : u.firstName || String(u.id)}  |  💰${u.balance}`,
-    callback_data: `usr_view:${u.id}`,
-  }]);
-  const nav = [];
-  if (page > 0)             nav.push({ text: '◀️', callback_data: `usrs_list:${page - 1}` });
-  if (page < totalPages - 1) nav.push({ text: '▶️', callback_data: `usrs_list:${page + 1}` });
-  if (nav.length) rows.push(nav);
-  rows.push([{ text: '🔍 بحث', callback_data: 'usrs_search' }]);
-  return { inline_keyboard: rows };
-}
-
 function overrideTasksKeyboard(userId) {
   const tasks = db.listTasks();
   const user  = db.getUser(userId);

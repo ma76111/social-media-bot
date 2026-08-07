@@ -32,7 +32,6 @@ const BTN_BACK_AR   = '↩️ رجوع';
 const BTN_BACK_EN   = '↩️ Back';
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function getCurrencyFromLang(l) { return l === 'en' ? 'usdt' : 'egp'; }
 
 // ─────────────────────────────────────────────
 //  sendMsg — helper مركزي يرسل رسالة مع entities
