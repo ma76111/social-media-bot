@@ -206,10 +206,15 @@ function buildSummary(task, answers, lang) {
 // ─────────────────────────────────────────────
 function getUserPendingItems(userId) {
   const items = [];
+  // نقرأ كل المهام مرة واحدة — كل مهمة تحتوي على submissions داخلها
   for (const task of db.listTasks()) {
-    // نجيب كل التسليمات: معلقة + مقبولة + مرفوضة
-    const subs = db.getSubmissions(task.id, null)
-      .filter(s => String(s.userId) === String(userId));
+    const subs = (task.submissions || [])
+      .filter(s => String(s.userId) === String(userId))
+      .map(s => ({
+        ...s,
+        status:   s.status === 'exported' ? 'approved' : s.status,
+        exported: s.status === 'exported' ? 1 : (s.exported ?? 0),
+      }));
     for (const sub of subs) {
       items.push({ task, sub });
     }
@@ -428,13 +433,14 @@ function register(bot, adminIds = []) {
     const text    = msg.text;
     const session = sessions[userId];
 
-    if (rateLimiter && !rateLimiter.check(userId)) return;
-
+    // rate limiter — لا يُطبَّق لو المستخدم داخل session نشط (تسليم)
     if (session && session.step === 'filling') {
       if (db.getUser(userId).isBanned) {
         clearSession(userId);
         return bot.sendMessage(msg.chat.id, '🚫 حسابك محظور.');
       }
+    } else if (rateLimiter && !rateLimiter.check(userId)) {
+      return;
     }
 
     // إلغاء

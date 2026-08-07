@@ -551,4 +551,4 @@ function register(bot, isAdmin) {
   });
 }
 
-module.exports = { register };
+module.exports = { register, clearSession };
