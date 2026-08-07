@@ -566,9 +566,6 @@ function register(bot, isAdmin) {
       { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
     );
   });
-      { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
-    );
-  });
 
   // زرار أدمن
   bot.onText(/📤 طلبات السحب/, (msg) => {
