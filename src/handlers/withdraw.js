@@ -565,10 +565,7 @@ function register(bot, isAdmin) {
       `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
       { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
     );
-
-    bot.sendMessage(
-      msg.chat.id,
-      `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
+  });
       { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
     );
   });
