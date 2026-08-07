@@ -112,27 +112,26 @@ function wdAdminMenuKeyboard() {
 }
 
 // ─────────────────────────────────────────────
-//  Keyboard قائمة الطلبات المعلقة (التصميم الجديد)
-//  كل طلب في صف واحد + زرار "تم الدفع" بجانبه
+//  Keyboard قائمة الطلبات المعلقة
+//  يُستخدم في sendWdList و editWdPendingList
 // ─────────────────────────────────────────────
-function wdPendingListKeyboard(list, page) {
-  const PAGE  = 12;
-  const total = list.length;
+function buildWdPendingKeyboard(list, page) {
+  const PAGE       = 12;
+  const total      = list.length;
   const totalPages = Math.ceil(total / PAGE) || 1;
   const safePage   = Math.max(0, Math.min(page, totalPages - 1));
   const slice      = list.slice(safePage * PAGE, (safePage + 1) * PAGE);
 
   const rows = slice.map(w => wdPendingRow(w, safePage));
 
-  // Navigation
   const nav = [];
-  if (safePage > 0)              nav.push({ text: '◀️ السابق', callback_data: `wda_list:pending:${safePage - 1}` });
-  if (safePage < totalPages - 1) nav.push({ text: `التالية ➡️ (${total - (safePage + 1) * PAGE} متبقي)`, callback_data: `wda_list:pending:${safePage + 1}` });
+  if (safePage > 0)
+    nav.push({ text: '◀️ السابق', callback_data: `wda_list:pending:${safePage - 1}` });
+  if (safePage < totalPages - 1)
+    nav.push({ text: `التالية ➡️ (${total - (safePage + 1) * PAGE} متبقي)`, callback_data: `wda_list:pending:${safePage + 1}` });
   if (nav.length) rows.push(nav);
 
-  rows.push([{ text: '🔙 القائمة الرئيسية', callback_data: 'wda_menu' }]);
-
-  return { inline_keyboard: rows, _safePage: safePage, _total: total, _totalPages: totalPages };
+  return { rows, safePage, totalPages, total };
 }
 
 function wdDetailKeyboard(wdId, status, backStatus = 'pending', backPage = 0) {
@@ -613,18 +612,7 @@ async function sendWdList(bot, chatId, status, page = 0) {
 
   // للطلبات المعلقة: طلب + زرار "تم الدفع" في نفس الصف
   if (status === 'pending') {
-    const PAGE       = 12;
-    const totalPages = Math.ceil(total / PAGE) || 1;
-    const safePage   = Math.max(0, Math.min(page, totalPages - 1));
-    const slice      = list.slice(safePage * PAGE, (safePage + 1) * PAGE);
-
-    const rows = slice.map(w => wdPendingRow(w, safePage));
-
-    const nav = [];
-    if (safePage > 0)              nav.push({ text: '◀️ السابق', callback_data: `wda_list:pending:${safePage - 1}` });
-    if (safePage < totalPages - 1) nav.push({ text: `التالية ➡️ (${total - (safePage + 1) * PAGE} متبقي)`, callback_data: `wda_list:pending:${safePage + 1}` });
-    if (nav.length) rows.push(nav);
-
+    const { rows, safePage, totalPages } = buildWdPendingKeyboard(list, page);
     return bot.sendMessage(chatId,
       `⏳ *الطلبات المعلقة (${total})* — صفحة ${safePage + 1}/${totalPages}:`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } }
@@ -675,18 +663,7 @@ async function editWdPendingList(bot, chatId, messageId, page = 0) {
     return;
   }
 
-  const PAGE       = 12;
-  const totalPages = Math.ceil(total / PAGE) || 1;
-  // لو الصفحة الحالية فضت، ارجع للسابقة
-  const safePage   = Math.max(0, Math.min(page, totalPages - 1));
-  const slice      = list.slice(safePage * PAGE, (safePage + 1) * PAGE);
-
-  const rows = slice.map(w => wdPendingRow(w, safePage));
-
-  const nav = [];
-  if (safePage > 0)              nav.push({ text: '◀️ السابق', callback_data: `wda_list:pending:${safePage - 1}` });
-  if (safePage < totalPages - 1) nav.push({ text: `التالية ➡️ (${total - (safePage + 1) * PAGE} متبقي)`, callback_data: `wda_list:pending:${safePage + 1}` });
-  if (nav.length) rows.push(nav);
+  const { rows, safePage, totalPages } = buildWdPendingKeyboard(list, page);
 
   bot.editMessageText(
     `⏳ *الطلبات المعلقة (${total})* — صفحة ${safePage + 1}/${totalPages}:`,

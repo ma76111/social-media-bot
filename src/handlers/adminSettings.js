@@ -113,8 +113,14 @@ function register(bot, isAdmin, mainKeyboard) {
   });
 
   // زرار رجوع من لوحة الإعدادات — يرجع للكيبورد الرئيسي
+  // ⚠️ يعمل فقط لو الأدمن داخل في لوحة الإعدادات (session نوعها setting/broadcast)
+  // أو مفيش session — لتجنب التدخل في flows أخرى (create_task, add_field, إلخ)
   bot.onText(/^🔙 رجوع$/, (msg) => {
     if (!isAdmin(msg.from.id)) return;
+    const session = getSession(msg.from.id);
+    // لو في session لغير الإعدادات → اتركها للـ handler المسؤول
+    if (session && session.type !== 'setting' && session.type !== 'broadcast_msg'
+        && session.type !== 'broadcast_one_id' && session.type !== 'broadcast_list_ids') return;
     clearSession(msg.from.id);
     bot.sendMessage(msg.chat.id, '🏠 القائمة الرئيسية', {
       reply_markup: typeof mainKeyboard === 'function'

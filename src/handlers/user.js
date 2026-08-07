@@ -794,7 +794,7 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
     const tasks = db.listTasks(true);
     return bot.sendMessage(chatId, t('sub_success', lang, sub.id.substring(0, 8)), {
       parse_mode: 'Markdown',
-      ...mainMenuKeyboardForUser(tasks, userId),
+      ...await mainMenuKeyboardForUser(tasks, userId),
     });
   }
   const taskName = db.getTaskText(task, 'name', 'ar');
