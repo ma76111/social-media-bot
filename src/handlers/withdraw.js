@@ -520,14 +520,9 @@ function register(bot, isAdmin) {
     const userId = msg.from.id;
     if (isAdmin(userId)) return;
 
-    // لو في session سحب نشط في نفس اللحظة → تجاهل لمنع التكرار
-    // (الـ message handler وonText يشتغلوا في نفس الوقت على نفس الرسالة)
-    const existing = getSession(userId);
-    if (existing && existing.step === 'select_method') return;
-    // لو في session سحب نشط في نفس اللحظة → تجاهل لمنع التكرار
-    // (الـ message handler وonText يشتغلوا في نفس الوقت على نفس الرسالة)
-    const existing = getSession(userId);
-    if (existing && existing.step === 'select_method') return;
+    // لو في session سحب نشط → تجاهل لمنع التكرار
+    const existingSess = getSession(userId);
+    if (existingSess && existingSess.step === 'select_method') return;
 
     const lang     = getLang(userId);
     const currency = getCurrency(userId);
