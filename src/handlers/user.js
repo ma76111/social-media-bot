@@ -75,11 +75,16 @@ function parseCodeSpans(rawText) {
 // ─────────────────────────────────────────────
 //  Keyboards
 // ─────────────────────────────────────────────
-function mainMenuKeyboardForUser(tasks = [], userId) {
-  const lang = getLang(userId);
-  const rows = tasks.map(tk => [{
-    text: `🟢 ${db.getTaskText(tk, 'name', lang)} 💰 ${tk.reward}`,
-  }]);
+async function mainMenuKeyboardForUser(tasks = [], userId) {
+  const lang     = getLang(userId);
+  const currency = getCurrency(userId);
+  const rows = await Promise.all(tasks.map(async tk => {
+    const reward = db.getEffectiveReward(userId, tk);
+    const { display, symbol } = await formatAmount(reward, currency);
+    return [{
+      text: `🟢 ${db.getTaskText(tk, 'name', lang)} — ${display} ${symbol}`,
+    }];
+  }));
   return {
     reply_markup: {
       keyboard: [
@@ -93,10 +98,15 @@ function mainMenuKeyboardForUser(tasks = [], userId) {
   };
 }
 
-function mainMenuKeyboard(tasks = [], lang = 'ar') {
-  const rows = tasks.map(tk => [{
-    text: `${tk.isOpen ? '🟢' : '🔴'} ${db.getTaskText(tk, 'name', lang)}  💰 ${tk.reward}`,
-  }]);
+async function mainMenuKeyboard(tasks = [], lang = 'ar', userId = null) {
+  const currency = userId ? getCurrency(userId) : 'egp';
+  const rows = await Promise.all(tasks.map(async tk => {
+    const reward = userId ? db.getEffectiveReward(userId, tk) : tk.reward;
+    const { display, symbol } = await formatAmount(reward, currency);
+    return [{
+      text: `${tk.isOpen ? '🟢' : '🔴'} ${db.getTaskText(tk, 'name', lang)} — ${display} ${symbol}`,
+    }];
+  }));
   return {
     reply_markup: {
       keyboard: [
@@ -401,7 +411,7 @@ function register(bot, adminIds = []) {
       clearSession(userId);
       await bot.answerCallbackQuery(query.id);
       const tasks = db.listTasks(true);
-      bot.sendMessage(chatId, t('cancel_msg', lang), mainMenuKeyboardForUser(tasks, userId));
+      bot.sendMessage(chatId, t('cancel_msg', lang), await mainMenuKeyboardForUser(tasks, userId));
       return;
     }
     if (data.startsWith('pending_page:')) {
@@ -434,7 +444,7 @@ function register(bot, adminIds = []) {
       const tasks = db.listTasks(true);
       return bot.sendMessage(msg.chat.id,
         lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.',
-        mainMenuKeyboardForUser(tasks, userId)
+        await mainMenuKeyboardForUser(tasks, userId)
       );
     }
 
@@ -471,7 +481,7 @@ function register(bot, adminIds = []) {
       const tasks = db.listTasks(true);
       return bot.sendMessage(msg.chat.id,
         lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.',
-        mainMenuKeyboardForUser(tasks, userId)
+        await mainMenuKeyboardForUser(tasks, userId)
       );
     }
 
@@ -483,7 +493,7 @@ function register(bot, adminIds = []) {
         const tasks = db.listTasks(true);
         return bot.sendMessage(msg.chat.id,
           getLang(userId) === 'ar' ? '⚠️ اختر مهمة أولاً.' : '⚠️ Choose a task first.',
-          mainMenuKeyboardForUser(tasks, userId)
+          await mainMenuKeyboardForUser(tasks, userId)
         );
       }
       await startTask(bot, msg.chat.id, userId, taskId, getLang(userId));
@@ -518,7 +528,7 @@ async function sendHome(bot, chatId, userId, firstName) {
     : t('home_greeting', lang, safe);
   bot.sendMessage(chatId, text, {
     parse_mode: 'Markdown',
-    ...mainMenuKeyboardForUser(tasks, userId),
+    ...await mainMenuKeyboardForUser(tasks, userId),
   });
 }
 
@@ -917,7 +927,11 @@ async function broadcastNewTask(bot, task) {
       const { display, symbol } = await formatAmount(task.reward, currency);
       const taskName  = db.getTaskText(task, 'name',      lang);
       const shortDesc = db.getTaskText(task, 'shortDesc', lang);
-      const taskRows  = tasks.map(tk => [{ text: `🟢 ${db.getTaskText(tk,'name',lang)} 💰 ${tk.reward}` }]);
+      const taskRows  = await Promise.all(tasks.map(async tk => {
+        const reward = db.getEffectiveReward(user.id, tk);
+        const { display: rd, symbol: rs } = await formatAmount(reward, currency);
+        return [{ text: `🟢 ${db.getTaskText(tk,'name',lang)} — ${rd} ${rs}` }];
+      }));
       await bot.sendMessage(user.id,
         `🆕 *${lang === 'ar' ? 'مهمة جديدة!' : 'New Task!'}*\n\n` +
         `📌 *${escMd(taskName)}*\n` +
