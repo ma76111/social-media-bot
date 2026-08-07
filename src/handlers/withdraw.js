@@ -213,6 +213,16 @@ async function sendWithdrawStart(bot, chatId, userId, lang) {
     }
   }
 
+  // نشيل الـ reply keyboard القديم بإرسال رسالة مؤقتة بدون keyboard
+  try {
+    const clearMsg = await bot.sendMessage(chatId,
+      lang === 'ar' ? '↩️ جاري الرجوع...' : '↩️ Going back...',
+      { reply_markup: { remove_keyboard: true } }
+    );
+    // نحذف الرسالة المؤقتة بعد 200ms
+    setTimeout(() => bot.deleteMessage(chatId, clearMsg.message_id).catch(() => {}), 200);
+  } catch { /* ignore */ }
+
   bot.sendMessage(chatId,
     `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
     { parse_mode: 'Markdown', reply_markup: methodKeyboard(lang) }

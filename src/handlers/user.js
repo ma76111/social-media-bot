@@ -457,8 +457,7 @@ function register(bot, adminIds = []) {
         lang === 'ar' ? '❌ تم الإلغاء.' : '❌ Cancelled.',
         await mainMenuKeyboardForUser(tasks, userId)
       );
-    }
-    if (text === BTN_BACK_AR || text === BTN_BACK_EN) {
+    }    if (text === BTN_BACK_AR || text === BTN_BACK_EN) {
       if (session && session.step === 'filling' && session.fieldIndex > 0) {
         const task   = db.getTask(session.taskId);
         const fields = [...task.fields].sort((a, b) => a.order - b.order);
