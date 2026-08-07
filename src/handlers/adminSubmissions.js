@@ -388,11 +388,6 @@ async function handleAdminText(bot, msg, adminId) {
     );
   }
 
-  if (flow === 'approve_by_data' && step === 'confirm') {
-    // لا يُستدعى من هنا — يُعالَج من callback_query أدناه
-  }
-  }
-
   if (flow === 'reject_by_data' && step === 'waiting') {
     clearSession(adminId);
     if (text === '❌ إلغاء') return bot.sendMessage(chatId, '❌ تم الإلغاء.');
@@ -431,11 +426,6 @@ async function handleAdminText(bot, msg, adminId) {
       `❌ تم العثور على *${matched.length}* تسليم مطابق.\nهل تريد رفضهم جميعاً وإشعار أصحابهم؟`,
       { parse_mode: 'Markdown', reply_markup: confirmKeyboard(`rejdata_ok:${adminId}`, `rejdata_cancel:${adminId}`) }
     );
-  }
-
-  if (flow === 'reject_by_data' && step === 'confirm') {
-    // لا يُستدعى من هنا — يُعالَج من callback_query أدناه
-  }
   }
 
   if (flow === 'undo_ids' && step === 'waiting') {
