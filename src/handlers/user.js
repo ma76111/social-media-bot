@@ -361,6 +361,7 @@ function register(bot, adminIds = []) {
   // ─────────────────────────────────────────────
   async function guardMembership(msg, next) {
     if (!msg.from || !msg.text || msg.text.startsWith('/')) return next();
+    if (_adminIds.includes(msg.from.id)) return next(); // الأدمن مستثنى
     const cfg = getJoinConfig();
     if (!cfg.enabled) return next();
     const joined = await isMember(bot, msg.from.id);
@@ -413,6 +414,9 @@ function register(bot, adminIds = []) {
     const chatId = query.message.chat.id;
     const msgId  = query.message.message_id;
     const lang   = getLang(userId);
+
+    // الأدمن لا يدخل في هذا الـ handler — ما عدا join_check
+    if (_adminIds.includes(userId) && data !== 'join_check') return;
 
     // فحص الحظر
     if (data.startsWith('task_') || data === 'field_skip' || data.startsWith('pending_')) {
@@ -514,6 +518,9 @@ function register(bot, adminIds = []) {
     const userId  = msg.from.id;
     const text    = msg.text;
     const session = sessions[userId];
+
+    // الأدمن لا يدخل في هذا الـ handler إطلاقاً
+    if (_adminIds.includes(userId)) return;
 
     // ── فحص الاشتراك الإجباري (مركزي للرسائل غير المغطاة بـ onText) ──
     if (text && !text.startsWith('/')) {
