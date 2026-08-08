@@ -171,13 +171,11 @@ async function sendApprovedAndNotify(bot, taskId, notifyApprovedFn) {
       const submitter = db.getUser(sub.userId);
       if (submitter.referredBy) {
         db.addBalance(submitter.referredBy, s.referralPerSub);
-        // إشعار المُحيل
-        if (notifyApprovedFn) {
-          bot.sendMessage(submitter.referredBy,
-            `💸 *مكافأة إحالة!*\n\nأحد من أصدقائك الذين دعوتهم أنجز مهمة وحصلت على \`${s.referralPerSub} EGP\` 🎉`,
-            { parse_mode: 'Markdown' }
-          ).catch(() => {});
-        }
+        // إشعار المُحيل — يعمل بغض النظر عن notifyApprovedFn
+        bot.sendMessage(submitter.referredBy,
+          `💸 *مكافأة إحالة!*\n\nأحد من أصدقائك الذين دعوتهم أنجز مهمة وحصلت على \`${s.referralPerSub} EGP\` 🎉`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
       }
     }
 

@@ -325,7 +325,6 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   const isNewUser = !db.getUser(msg.from.id).lang;
 
   // حفظ بيانات المستخدم
-  db.getUser(msg.from.id);
   db.updateUserMeta(msg.from.id, {
     username:  msg.from.username  || null,
     firstName: msg.from.first_name || null,

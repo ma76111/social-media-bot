@@ -254,6 +254,20 @@ async function approveOne(bot, chatId, taskId, subId) {
   // استخدام المكافأة الفعلية (تأخذ rewardOverride بعين الاعتبار)
   const reward = db.getEffectiveReward(sub.userId, task);
   db.addBalance(sub.userId, reward);
+
+  // ── مكافأة الإحالة لكل تسليم مقبول ──────────────────
+  const refSettings = db.getSettings();
+  if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {
+    const submitter = db.getUser(sub.userId);
+    if (submitter.referredBy) {
+      db.addBalance(submitter.referredBy, refSettings.referralPerSub);
+      bot.sendMessage(submitter.referredBy,
+        `💸 *مكافأة إحالة!*\n\nأحد من أصدقائك الذين دعوتهم أنجز مهمة وحصلت على \`${refSettings.referralPerSub} EGP\` 🎉`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+    }
+  }
+
   await notifyApproved(bot, sub, task);
   db.deleteSubmission(taskId, subId);
 
@@ -743,6 +757,7 @@ function register(bot, isAdmin) {
       const taskObj = db.getTask(taskId);
       if (!taskObj) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
       bot.sendMessage(chatId, `⏳ جاري قبول *${ids.length}* تسليم...`, { parse_mode: 'Markdown' });
+      const refSettings = db.getSettings();
       const processedUsers = new Set();
       let done = 0, totalCancelled = 0;
       for (const subId of ids) {
@@ -751,6 +766,19 @@ function register(bot, isAdmin) {
         db.updateSubmissionStatus(taskId, subId, 'approved');
         const reward = db.getEffectiveReward(sub.userId, taskObj);
         db.addBalance(sub.userId, reward);
+
+        // ── مكافأة الإحالة ──
+        if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {
+          const submitter = db.getUser(sub.userId);
+          if (submitter.referredBy) {
+            db.addBalance(submitter.referredBy, refSettings.referralPerSub);
+            bot.sendMessage(submitter.referredBy,
+              `💸 *مكافأة إحالة!*\n\nأحد من أصدقائك الذين دعوتهم أنجز مهمة وحصلت على \`${refSettings.referralPerSub} EGP\` 🎉`,
+              { parse_mode: 'Markdown' }
+            ).catch(() => {});
+          }
+        }
+
         await notifyApproved(bot, sub, taskObj);
         if (!processedUsers.has(sub.userId)) {
           processedUsers.add(sub.userId);

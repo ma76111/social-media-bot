@@ -1126,6 +1126,11 @@ async function broadcastNewTask(bot, task) {
         const { display: rd, symbol: rs } = await formatAmount(reward, currency);
         return [{ text: `🟢 ${db.getTaskText(tk,'name',lang)} — ${rd} ${rs}` }];
       }));
+      const s        = db.getSettings();
+      const extraRow = [];
+      if (s.referralEnabled) extraRow.push({ text: t('btn_referral', lang) });
+      if (s.supportEnabled && s.supportText) extraRow.push({ text: t('btn_support', lang) });
+
       await bot.sendMessage(user.id,
         `🆕 *${lang === 'ar' ? 'مهمة جديدة!' : 'New Task!'}*\n\n` +
         `📌 *${escMd(taskName)}*\n` +
@@ -1138,6 +1143,7 @@ async function broadcastNewTask(bot, task) {
               ...taskRows,
               [{ text: t('btn_balance',lang) }, { text: t('btn_pending',lang) }],
               [{ text: t('btn_withdraw',lang) }, { text: t('btn_settings',lang) }],
+              ...(extraRow.length ? [extraRow] : []),
               [{ text: t('btn_myid',lang) }],
             ],
             resize_keyboard: true,
