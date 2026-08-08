@@ -546,14 +546,17 @@ function register(bot, adminIds = []) {
       }
     }
 
-    // rate limiter
-    if (session && session.step === 'filling') {
-      if (db.getUser(userId).isBanned) {
-        clearSession(userId);
-        return bot.sendMessage(msg.chat.id, '🚫 حسابك محظور.');
+    // rate limiter — لا يُطبَّق على أزرار القائمة الرئيسية
+    const isMenuBtn = text && MENU_TEXTS.has(text);
+    if (!isMenuBtn) {
+      if (session && session.step === 'filling') {
+        if (db.getUser(userId).isBanned) {
+          clearSession(userId);
+          return bot.sendMessage(msg.chat.id, '🚫 حسابك محظور.');
+        }
+      } else if (rateLimiter && !rateLimiter.check(userId)) {
+        return;
       }
-    } else if (rateLimiter && !rateLimiter.check(userId)) {
-      return;
     }
 
     // ── زرار إحالتي ──
