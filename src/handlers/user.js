@@ -424,6 +424,25 @@ function register(bot, adminIds = []) {
       return;
     }
 
+    // ── فحص الاشتراك الإجباري على كل callbacks المستخدم ──────────
+    // ما عدا join_check نفسه (فوق) — لمنع loop
+    {
+      const cfg = getJoinConfig();
+      if (cfg.enabled) {
+        const joined = await isMember(bot, userId);
+        if (!joined) {
+          await bot.answerCallbackQuery(query.id, {
+            text: lang === 'ar'
+              ? '🔒 اشترك في القناة أولاً!'
+              : '🔒 Join the channel first!',
+            show_alert: true,
+          });
+          await sendJoinPrompt(bot, chatId, lang);
+          return;
+        }
+      }
+    }
+
     if (data.startsWith('task_view:')) {      await bot.answerCallbackQuery(query.id);
       const task = db.getTask(data.split(':')[1]);
       if (!task || !task.isOpen) return bot.sendMessage(chatId, t('task_unavailable', lang));
@@ -473,6 +492,19 @@ function register(bot, adminIds = []) {
     const userId  = msg.from.id;
     const text    = msg.text;
     const session = sessions[userId];
+
+    // ── فحص الاشتراك الإجباري (مركزي) ──────────────────────────
+    // يُطبَّق على كل رسائل المستخدم — ما عدا /start (معالَج في index.js)
+    if (text && !text.startsWith('/')) {
+      const cfg = getJoinConfig();
+      if (cfg.enabled) {
+        const joined = await isMember(bot, userId);
+        if (!joined) {
+          await sendJoinPrompt(bot, msg.chat.id, getLang(userId));
+          return;
+        }
+      }
+    }
 
     // rate limiter — لا يُطبَّق لو المستخدم داخل session نشط (تسليم)
     if (session && session.step === 'filling') {
