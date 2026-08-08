@@ -415,7 +415,8 @@ function register(bot, isAdmin, mainKeyboard) {
     }
 
     // ── إعداد القناة الإجبارية ───────────────
-    if (data === 'cfg_join_menu') {      await bot.answerCallbackQuery(query.id);
+    if (data === 'cfg_join_menu') {
+      await bot.answerCallbackQuery(query.id);
       sendJoinSettingsMenu(bot, chatId);
       return;
     }
