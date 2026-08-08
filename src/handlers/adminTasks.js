@@ -282,12 +282,20 @@ function register(bot, isAdmin) {
     if (!session) return;
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.text && (msg.text.startsWith('🟢') || msg.text.startsWith('🔴'))) return;
+
+    // إلغاء صريح — يمسح session المهام ويوقف التنفيذ
+    if (msg.text === '❌ إلغاء') {
+      clearSession(adminId);
+      return;
+    }
+
     // تجاهل أزرار القائمة الرئيسية للأدمن
     const menuTexts = [
       '📋 إدارة المهام', '➕ مهمة جديدة', '📊 إحصائيات',
       '📤 طلبات السحب',  '👥 المستخدمون',  '💱 سعر الصرف',
       '🔧 لوحة الأدمن',  '🏠 القائمة الرئيسية', '⚙️ الإعدادات',
       '⚙️ إعدادات النظام', '📨 إرسال رسالة', '🔙 رجوع',
+      '❌ إلغاء',  // زرار الإلغاء — تعالجه adminSettings
     ];
     if (msg.text && menuTexts.includes(msg.text)) return;
 
