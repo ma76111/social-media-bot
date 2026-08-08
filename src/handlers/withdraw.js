@@ -740,8 +740,8 @@ function register(bot, isAdmin, adminIds = []) {
       const withdrawalGroup = process.env.WITHDRAWAL_GROUP;
       const botUsername     = process.env.BOT_USERNAME || '';
       if (withdrawalGroup) {
-        const userObj   = db.getUser(wd.userId);
-        const userMention = userObj?.username ? `@${escMd(userObj.username)}` : escMd(userObj?.firstName || String(wd.userId));
+        const userObj     = db.getUser(wd.userId);
+        const userMention = userObj?.username ? `@${userObj.username}` : (userObj?.firstName || String(wd.userId));
         const { display: egpDisplay } = await formatAmount(wd.amount, 'egp');
         const now = new Date().toLocaleString('ar-EG', {
           timeZone: 'Africa/Cairo',
@@ -749,14 +749,14 @@ function register(bot, isAdmin, adminIds = []) {
           hour: '2-digit', minute: '2-digit',
         });
         const groupMsg =
-          `🎉 *تم صرف مكافأة جديدة!*\n\n` +
+          `🎉 تم صرف مكافأة جديدة!\n\n` +
           `👤 المستخدم: ${userMention}\n` +
-          `💵 القيمة: *${egpDisplay}.00 جنيه*\n` +
+          `💵 القيمة: ${egpDisplay}.00 جنيه\n` +
           `🕐 الوقت: ${now}\n\n` +
           `🙏 شكراً لأنك تعمل معنا!\n` +
           `💪 استمر في العمل وستحصل على المزيد\n\n` +
-          `🤖 ${escMd(botUsername)}`;
-        bot.sendMessage(withdrawalGroup, groupMsg, { parse_mode: 'Markdown' }).catch(() => {});
+          `🤖 @${botUsername}`;
+        bot.sendMessage(withdrawalGroup, groupMsg).catch(() => {});
       }
 
       // تحديث قائمة الطلبات المعلقة
@@ -785,7 +785,7 @@ function register(bot, isAdmin, adminIds = []) {
       const botUsername     = process.env.BOT_USERNAME || '';
       if (withdrawalGroup) {
         const userObj     = db.getUser(wd.userId);
-        const userMention = userObj?.username ? `@${escMd(userObj.username)}` : escMd(userObj?.firstName || String(wd.userId));
+        const userMention = userObj?.username ? `@${userObj.username}` : (userObj?.firstName || String(wd.userId));
         const { display: egpDisplay } = await formatAmount(wd.amount, 'egp');
         const now = new Date().toLocaleString('ar-EG', {
           timeZone: 'Africa/Cairo',
@@ -793,14 +793,13 @@ function register(bot, isAdmin, adminIds = []) {
           hour: '2-digit', minute: '2-digit',
         });
         bot.sendMessage(withdrawalGroup,
-          `🎉 *تم صرف مكافأة جديدة!*\n\n` +
+          `🎉 تم صرف مكافأة جديدة!\n\n` +
           `👤 المستخدم: ${userMention}\n` +
-          `💵 القيمة: *${egpDisplay}.00 جنيه*\n` +
+          `💵 القيمة: ${egpDisplay}.00 جنيه\n` +
           `🕐 الوقت: ${now}\n\n` +
           `🙏 شكراً لأنك تعمل معنا!\n` +
           `💪 استمر في العمل وستحصل على المزيد\n\n` +
-          `🤖 ${escMd(botUsername)}`,
-          { parse_mode: 'Markdown' }
+          `🤖 @${botUsername}`
         ).catch(() => {});
       }
 
