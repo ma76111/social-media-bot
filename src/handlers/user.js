@@ -72,7 +72,7 @@ function parseCodeSpans(rawText) {
 }
 
 const withdrawHandler = require('./withdraw');
-const { isMember, sendJoinPrompt, getJoinConfig } = require('../utils/membership');
+const { isMember, sendJoinPrompt, getJoinConfig, invalidateMemberCache } = require('../utils/membership');
 
 // ─────────────────────────────────────────────
 //  Keyboards
@@ -405,6 +405,8 @@ function register(bot, adminIds = []) {
 
     // ── فحص الاشتراك عند الضغط على "تحققت" ──
     if (data === 'join_check') {
+      // امسح الـ cache أولاً عشان الفحص يكون حقيقي
+      invalidateMemberCache(userId);
       const joined = await isMember(bot, userId);
       if (!joined) {
         await bot.answerCallbackQuery(query.id, {
