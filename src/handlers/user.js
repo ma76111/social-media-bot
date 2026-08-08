@@ -565,18 +565,20 @@ function register(bot, adminIds = []) {
       const botUsername = process.env.BOT_USERNAME || '';
       const refLink     = botUsername
         ? `https://t.me/${botUsername}?start=ref_${userId}`
-        : `\`/start ref_${userId}\``;
+        : `https://t.me/unknown_bot?start=ref_${userId}`;
       const stats = db.getReferralStats(userId);
       const s     = db.getSettings();
-      const perSubText = s.referralPerSub > 0
+      const perSubLine = s.referralPerSub > 0
         ? (lang === 'ar'
-            ? `\n💸 مكافأة كل تسليم مقبول: \`${s.referralPerSub} EGP\``
-            : `\n💸 Per approved submission: \`${s.referralPerSub} EGP\``)
+            ? `\n💸 مكافأة كل تسليم مقبول: ${s.referralPerSub} EGP`
+            : `\n💸 Per approved submission: ${s.referralPerSub} EGP`)
         : '';
-      bot.sendMessage(msg.chat.id,
-        t('referral_info', lang, stats.count, refLink) + perSubText,
-        { parse_mode: 'Markdown' }
-      );
+
+      const msgText = lang === 'ar'
+        ? `🔗 رابط الإحالة الخاص بك\n\n📊 عدد المُحالين: ${stats.count}\n\n🔗 رابطك:\n${refLink}\n\n💡 ستحصل على مكافأة عند كل تسليم مقبول لمن دعوته!${perSubLine}`
+        : `🔗 Your Referral Link\n\n📊 Total referred: ${stats.count}\n\n🔗 Your link:\n${refLink}\n\n💡 You earn a reward for every approved submission by people you referred!${perSubLine}`;
+
+      bot.sendMessage(msg.chat.id, msgText);
       return;
     }
 
