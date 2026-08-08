@@ -216,11 +216,13 @@ function buildSummary(task, answers, lang) {
 }
 
 // ─────────────────────────────────────────────
-//  Pending items
+//  Pending items — يجمع المعلقة من المهام + المقبولة/المرفوضة من السجل التاريخي
 // ─────────────────────────────────────────────
 function getUserPendingItems(userId) {
   const items = [];
-  // نقرأ كل المهام مرة واحدة — كل مهمة تحتوي على submissions داخلها
+  const seenSubIds = new Set();
+
+  // 1) التسليمات المعلقة الحية من المهام
   for (const task of db.listTasks()) {
     const subs = (task.submissions || [])
       .filter(s => String(s.userId) === String(userId))
@@ -230,9 +232,36 @@ function getUserPendingItems(userId) {
         exported: s.status === 'exported' ? 1 : (s.exported ?? 0),
       }));
     for (const sub of subs) {
-      items.push({ task, sub });
+      seenSubIds.add(sub.id);
+      items.push({ task, sub, fromHistory: false });
     }
   }
+
+  // 2) السجل التاريخي (مقبولة + مرفوضة) — تجنب التكرار مع الموجودة فوق
+  const history = db.getSubmissionHistory(userId);
+  for (const h of history) {
+    if (seenSubIds.has(h.subId)) continue; // موجودة كمعلقة فوق
+    if (h.status === 'pending') continue;   // pending لا تظهر هنا (موجودة فوق)
+    items.push({
+      task: {
+        id:   h.taskId,
+        name: h.taskName,
+        reward: h.reward,
+        fields: [],
+      },
+      sub: {
+        id:          h.subId,
+        status:      h.status,
+        submittedAt: h.resolvedAt || h.submittedAt,
+        rejectReason: null,
+        data:         {},
+        exported:     0,
+      },
+      fromHistory: true,
+      reward: h.reward,
+    });
+  }
+
   return items.sort((a, b) => b.sub.submittedAt.localeCompare(a.sub.submittedAt));
 }
 
@@ -260,6 +289,7 @@ async function buildPendingText(items, page, userId) {
   const ar = lang === 'ar';
   let headerText =
     `${t('pending_title', lang)}\n` +
+    `${ar ? '_📋 إحصائية آخر 30 يوم_' : '_📋 Last 30 days statistics_'}\n` +
     `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n` +
     `📊 ${ar ? 'الإجمالي' : 'Total'}  ·  *${total}* ${ar ? 'تسليم' : 'submission(s)'}\n` +
     `\n` +
@@ -281,11 +311,15 @@ async function buildPendingText(items, page, userId) {
   };
 
   let rawItems = '';
-  for (const { task, sub } of slice) {
-    const effectiveReward = db.getEffectiveReward(userId, task);
+  for (const { task, sub, fromHistory, reward: histReward } of slice) {
+    const effectiveReward = fromHistory
+      ? (histReward || 0)
+      : db.getEffectiveReward(userId, task);
     const { display: rd, symbol: rs } = await formatAmount(effectiveReward, currency);
-    const taskName   = db.getTaskText(task, 'name', lang);
-    const fields     = [...task.fields].sort((a, b) => a.order - b.order);
+    const taskName   = fromHistory
+      ? (typeof task.name === 'string' ? task.name : db.getTaskText(task, 'name', lang))
+      : db.getTaskText(task, 'name', lang);
+    const fields     = fromHistory ? [] : [...task.fields].sort((a, b) => a.order - b.order);
     const statusIcon = STATUS_ICON[sub.status] || '•';
     const statusLbl  = STATUS_LABEL[sub.status] || sub.status;
 

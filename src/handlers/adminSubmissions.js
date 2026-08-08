@@ -255,6 +255,15 @@ async function approveOne(bot, chatId, taskId, subId) {
   const reward = db.getEffectiveReward(sub.userId, task);
   db.addBalance(sub.userId, reward);
 
+  // ── حفظ في تاريخ التسليمات ──────────────────
+  db.addSubmissionHistory(sub.userId, {
+    taskId:   task.id,
+    taskName: db.getTaskText(task, 'name', 'ar'),
+    subId:    sub.id,
+    status:   'approved',
+    reward,
+  });
+
   // ── مكافأة الإحالة لكل تسليم مقبول ──────────────────
   const refSettings = db.getSettings();
   if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {
@@ -284,6 +293,14 @@ async function rejectOne(bot, chatId, adminId, taskId, subId, reason) {
   const sub  = db.updateSubmissionStatus(taskId, subId, 'rejected', reason);
   if (!sub) return bot.sendMessage(chatId, '⚠️ التسليم غير موجود.');
   await notifyRejected(bot, sub, task, reason);
+  // ── حفظ في تاريخ التسليمات ──────────────────
+  db.addSubmissionHistory(sub.userId, {
+    taskId:   task.id,
+    taskName: db.getTaskText(task, 'name', 'ar'),
+    subId:    sub.id,
+    status:   'rejected',
+    reward:   0,
+  });
   db.deleteSubmission(taskId, subId);   // ← حذف بعد الرفض
   bot.sendMessage(chatId,
     `❌ تم رفض التسليم \`${subId.substring(0,8)}\`.\n🗑 تم حذف التسليم من البيانات.`,
@@ -313,6 +330,14 @@ async function executeSelectiveAction(bot, chatId, taskId, ids, action, reason) 
       db.updateSubmissionStatus(taskId, id, 'approved');
       const reward = db.getEffectiveReward(sub.userId, task);
       db.addBalance(sub.userId, reward);
+      // ── حفظ في تاريخ التسليمات ──────────────────
+      db.addSubmissionHistory(sub.userId, {
+        taskId:   task.id,
+        taskName: db.getTaskText(task, 'name', 'ar'),
+        subId:    sub.id,
+        status:   'approved',
+        reward,
+      });
       await notifyApproved(bot, sub, task);
 
       const allPending = db.getAllPendingForUser(sub.userId);
@@ -340,6 +365,14 @@ async function executeSelectiveAction(bot, chatId, taskId, ids, action, reason) 
       if (!sub) continue;
       db.updateSubmissionStatus(taskId, id, 'rejected', reason);
       await notifyRejected(bot, sub, task, reason);
+      // ── حفظ في تاريخ التسليمات ──────────────────
+      db.addSubmissionHistory(sub.userId, {
+        taskId:   task.id,
+        taskName: db.getTaskText(task, 'name', 'ar'),
+        subId:    sub.id,
+        status:   'rejected',
+        reward:   0,
+      });
     }
     db.bulkDeleteSubmissions(taskId, ids);
     return bot.sendMessage(chatId, `❌ تم رفض وحذف *${ids.length}* تسليماً.`, { parse_mode: 'Markdown' });
@@ -782,8 +815,7 @@ function register(bot, isAdmin) {
         db.addBalance(sub.userId, reward);
 
         // ── مكافأة الإحالة ──
-        if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {
-          const submitter = db.getUser(sub.userId);
+        if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {          const submitter = db.getUser(sub.userId);
           if (submitter.referredBy) {
             db.addBalance(submitter.referredBy, refSettings.referralPerSub);
             bot.sendMessage(submitter.referredBy,
@@ -794,6 +826,14 @@ function register(bot, isAdmin) {
         }
 
         await notifyApproved(bot, sub, taskObj);
+        // ── حفظ في تاريخ التسليمات ──────────────────
+        db.addSubmissionHistory(sub.userId, {
+          taskId:   taskObj.id,
+          taskName: db.getTaskText(taskObj, 'name', 'ar'),
+          subId:    sub.id,
+          status:   'approved',
+          reward,
+        });
         if (!processedUsers.has(sub.userId)) {
           processedUsers.add(sub.userId);
           const approvedTaskName = db.getTaskText(taskObj, 'name', 'ar');
@@ -841,6 +881,14 @@ function register(bot, isAdmin) {
         if (!sub) continue;
         db.updateSubmissionStatus(taskId, subId, 'rejected');
         await notifyRejected(bot, sub, taskObj, null);
+        // ── حفظ في تاريخ التسليمات ──────────────────
+        db.addSubmissionHistory(sub.userId, {
+          taskId:   taskObj.id,
+          taskName: db.getTaskText(taskObj, 'name', 'ar'),
+          subId:    sub.id,
+          status:   'rejected',
+          reward:   0,
+        });
         db.deleteSubmission(taskId, subId);
         done++;
       }

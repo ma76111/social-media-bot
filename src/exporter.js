@@ -165,6 +165,15 @@ async function sendApprovedAndNotify(bot, taskId, notifyApprovedFn) {
     const reward = db.getEffectiveReward(sub.userId, task);
     db.addBalance(sub.userId, reward);
 
+    // ── حفظ في تاريخ التسليمات ──────────────────
+    db.addSubmissionHistory(sub.userId, {
+      taskId:   task.id,
+      taskName: db.getTaskText(task, 'name', 'ar'),
+      subId:    sub.id,
+      status:   'approved',
+      reward,
+    });
+
     // ── مكافأة الإحالة لكل تسليم مقبول ──────────────────
     const s = db.getSettings();
     if (s.referralEnabled && s.referralPerSub > 0) {
@@ -210,6 +219,15 @@ async function sendRejectedAndNotify(bot, taskId, notifyRejectedFn, reason = nul
   const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar'), '_rejected'));
 
   for (const sub of subs) {
+    // ── حفظ في تاريخ التسليمات ──────────────────
+    db.addSubmissionHistory(sub.userId, {
+      taskId:   task.id,
+      taskName: db.getTaskText(task, 'name', 'ar'),
+      subId:    sub.id,
+      status:   'rejected',
+      reward:   0,
+    });
+
     if (notifyRejectedFn) {
       try {
         await notifyRejectedFn(bot, sub, task, reason || sub.rejectReason);

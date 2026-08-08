@@ -854,6 +854,67 @@ function removeExtraAdmin(userId) {
 }
 
 // ─────────────────────────────────────────────
+//  SUBMISSION HISTORY  (سجل تاريخ التسليمات)
+//  يُحفظ في users[uid].submissionHistory
+//  كل سجل: { taskId, taskName, subId, status, reward, submittedAt, resolvedAt }
+//  يُحذف تلقائياً بعد 30 يوم
+// ─────────────────────────────────────────────
+
+const HISTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 يوم
+
+/**
+ * يضيف سجل تسليم لتاريخ المستخدم
+ * @param {number} userId
+ * @param {object} entry - { taskId, taskName, subId, status, reward }
+ */
+function addSubmissionHistory(userId, { taskId, taskName, subId, status, reward = 0 }) {
+  const users = loadUsersCached();
+  const uid   = String(userId);
+  if (!users[uid]) getUser(userId);
+  if (!Array.isArray(users[uid].submissionHistory)) users[uid].submissionHistory = [];
+
+  // تنظيف القديم (أكثر من 30 يوم) قبل الإضافة
+  const cutoff = Date.now() - HISTORY_TTL_MS;
+  users[uid].submissionHistory = users[uid].submissionHistory.filter(h => {
+    const t = new Date(h.resolvedAt || h.submittedAt).getTime();
+    return t > cutoff;
+  });
+
+  // لو في سجل لنفس subId → حدّثه بدل إضافة جديد
+  const existing = users[uid].submissionHistory.find(h => h.subId === subId);
+  if (existing) {
+    existing.status     = status;
+    existing.reward     = reward;
+    existing.resolvedAt = now();
+  } else {
+    users[uid].submissionHistory.push({
+      taskId,
+      taskName,
+      subId,
+      status,
+      reward,
+      submittedAt: now(),
+      resolvedAt:  now(),
+    });
+  }
+
+  saveUsers(users);
+}
+
+/**
+ * يجلب تاريخ التسليمات للمستخدم (آخر 30 يوم)
+ */
+function getSubmissionHistory(userId) {
+  const users = loadUsersCached();
+  const uid   = String(userId);
+  if (!users[uid]) return [];
+  const cutoff = Date.now() - HISTORY_TTL_MS;
+  return (users[uid].submissionHistory || [])
+    .filter(h => new Date(h.resolvedAt || h.submittedAt).getTime() > cutoff)
+    .sort((a, b) => (b.resolvedAt || b.submittedAt).localeCompare(a.resolvedAt || a.submittedAt));
+}
+
+// ─────────────────────────────────────────────
 //  REFERRAL
 // ─────────────────────────────────────────────
 
@@ -1032,6 +1093,8 @@ module.exports = {
   getExtraAdmins, addExtraAdmin, removeExtraAdmin,
   // Referral
   setReferredBy, getReferralStats,
+  // Submission History
+  addSubmissionHistory, getSubmissionHistory,
   // Withdrawals
   createWithdrawal, getWithdrawals, getUserWithdrawals, updateWithdrawalStatus,
   // Lock utility (للاستخدام في handlers عند الحاجة)
