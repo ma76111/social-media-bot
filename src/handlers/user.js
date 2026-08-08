@@ -385,20 +385,21 @@ function register(bot, adminIds = []) {
   //  يُطبَّق على كل رسائل المستخدم قبل أي handler
   // ─────────────────────────────────────────────
   async function guardMembership(msg, next) {
-    if (!msg.from || !msg.text || msg.text.startsWith('/')) return next();
-    if (_adminIds.includes(msg.from.id)) return next(); // الأدمن مستثنى
+    if (!msg.from || !msg.text || msg.text.startsWith('/')) return await next();
+    if (_adminIds.includes(msg.from.id)) return await next();
     const cfg = getJoinConfig();
-    if (!cfg.enabled) return next();
+    if (!cfg.enabled) return await next();
     const joined = await isMember(bot, msg.from.id);
     if (!joined) {
       await sendJoinPrompt(bot, msg.chat.id, getLang(msg.from.id));
       return;
     }
-    return next();
+    return await next();
   }
 
   // رصيدي
   bot.onText(new RegExp(`${escRe(t('btn_balance','ar'))}|${escRe(t('btn_balance','en'))}`), async (msg) => {
+    if (_adminIds.includes(msg.from.id)) return;
     await guardMembership(msg, async () => {
       const uid = msg.from.id;
       const lang = getLang(uid);
@@ -412,11 +413,13 @@ function register(bot, adminIds = []) {
 
   // الأموال المعلقة
   bot.onText(new RegExp(`${escRe(t('btn_pending','ar'))}|${escRe(t('btn_pending','en'))}`), async (msg) => {
+    if (_adminIds.includes(msg.from.id)) return;
     await guardMembership(msg, () => sendPendingPage(bot, msg.chat.id, msg.from.id, 0));
   });
 
   // التفضيلات
   bot.onText(new RegExp(`${escRe(t('btn_settings','ar'))}|${escRe(t('btn_settings','en'))}`), async (msg) => {
+    if (_adminIds.includes(msg.from.id)) return;
     await guardMembership(msg, () => sendSettingsPage(bot, msg.chat.id, msg.from.id));
   });
 
@@ -432,7 +435,12 @@ function register(bot, adminIds = []) {
   });
 
   // إحالتي
-  bot.onText(new RegExp(`${escRe(t('btn_referral','ar'))}|${escRe(t('btn_referral','en'))}`), async (msg) => {
+  bot.on('message', async (msg) => {
+    if (!msg.text) return;
+    if (_adminIds.includes(msg.from.id)) return;
+    const btnAr = t('btn_referral', 'ar');
+    const btnEn = t('btn_referral', 'en');
+    if (msg.text !== btnAr && msg.text !== btnEn) return;
     await guardMembership(msg, async () => {
       const userId = msg.from.id;
       const lang   = getLang(userId);
@@ -454,7 +462,12 @@ function register(bot, adminIds = []) {
   });
 
   // دعم
-  bot.onText(new RegExp(`${escRe(t('btn_support','ar'))}|${escRe(t('btn_support','en'))}`), async (msg) => {
+  bot.on('message', async (msg) => {
+    if (!msg.text) return;
+    if (_adminIds.includes(msg.from.id)) return;
+    const btnAr = t('btn_support', 'ar');
+    const btnEn = t('btn_support', 'en');
+    if (msg.text !== btnAr && msg.text !== btnEn) return;
     await guardMembership(msg, () => {
       const s = db.getSettings();
       if (!s.supportEnabled || !s.supportText) return;
