@@ -413,7 +413,9 @@ function register(bot, isAdmin) {
           return bot.sendMessage(msg.chat.id, `🎯 لإدارة الميزات استخدم:\n/features_${task.id.substring(0,8)}`);
         }
         if (text === BTN.SUBMISSIONS) {
-          return bot.sendMessage(msg.chat.id, '📥 اذهب لقسم التسليمات من القائمة الرئيسية واختر المهمة.');
+          const adminSubsH = require('./adminSubmissions');
+          adminSubsH.sendSubsList(bot, msg.chat.id, task.id, 'pending');
+          return;
         }
         if (text === BTN.PREVIEW) {
           const { _sendTaskDetailPreview } = require('./user');

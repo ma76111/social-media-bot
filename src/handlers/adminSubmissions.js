@@ -867,4 +867,4 @@ function register(bot, isAdmin) {
   });
 }
 
-module.exports = { register, getSession, clearSession };
+module.exports = { register, getSession, clearSession, sendSubsList };
