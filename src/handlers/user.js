@@ -343,9 +343,18 @@ const MENU_TEXTS = allMenuTexts();
 // ─────────────────────────────────────────────
 //  register
 // ─────────────────────────────────────────────
+let _botUsername = process.env.BOT_USERNAME || ''; // يُحدَّث عند التشغيل
+
 function register(bot, adminIds = []) {
   // نخزن adminIds للإشعارات
   _adminIds = adminIds;
+
+  // جلب username البوت تلقائياً من API مرة واحدة عند التشغيل
+  if (!_botUsername) {
+    bot.getMe().then(me => {
+      _botUsername = me.username || '';
+    }).catch(() => {});
+  }
 
   bot.onText(/\/start/, (msg) => {
     clearSession(msg.from.id);
@@ -423,10 +432,9 @@ function register(bot, adminIds = []) {
     await guardMembership(msg, async () => {
       const userId = msg.from.id;
       const lang   = getLang(userId);
-      const botUsername = process.env.BOT_USERNAME || '';
-      const refLink = botUsername
-        ? `https://t.me/${botUsername}?start=ref_${userId}`
-        : `\`/start ref_${userId}\``;
+      const refLink = _botUsername
+        ? `https://t.me/${_botUsername}?start=ref_${userId}`
+        : `_(أضف BOT\\_USERNAME في .env)_`;
       const stats = db.getReferralStats(userId);
       const s     = db.getSettings();
       const perSubText = s.referralPerSub > 0
