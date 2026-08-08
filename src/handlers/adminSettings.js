@@ -161,15 +161,17 @@ function register(bot, isAdmin, mainKeyboard) {
   });
 
   // زرار رجوع من لوحة الإعدادات — يرجع للكيبورد الرئيسي
-  // ⚠️ يعمل فقط لو الأدمن داخل في لوحة الإعدادات (session نوعها setting/broadcast)
-  // أو مفيش session — لتجنب التدخل في flows أخرى (create_task, add_field, إلخ)
+  // فقط لو الأدمن في session إعدادات أو مفيش session
   bot.onText(/^🔙 رجوع$/, (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const session = getSession(msg.from.id);
-    // لو في session لغير الإعدادات → اتركها للـ handler المسؤول
+    // لو في session لغير الإعدادات → اتركها للـ handler المسؤول (adminTasks)
     if (session && session.type !== 'setting' && session.type !== 'broadcast_msg'
         && session.type !== 'broadcast_one_id' && session.type !== 'broadcast_list_ids'
         && session.type !== 'join_setting' && session.type !== 'support_text') return;
+    // لو adminTasks عنده session نشط → تجاهل
+    const adminTasksSession = require('./adminTasks').getSession(msg.from.id);
+    if (adminTasksSession) return;
     clearSession(msg.from.id);
     bot.sendMessage(msg.chat.id, '🏠 القائمة الرئيسية', {
       reply_markup: typeof mainKeyboard === 'function'

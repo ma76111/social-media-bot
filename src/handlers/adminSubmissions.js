@@ -503,11 +503,16 @@ function register(bot, isAdmin) {
     if (!msg.text || !isAdmin(msg.from.id)) return;
     if (msg.text.startsWith('/')) return;
     if (msg.text.startsWith('🟢') || msg.text.startsWith('🔴')) return;
-    // تجاهل أزرار القائمة الرئيسية للأدمن
+    // تجاهل أزرار القائمة الرئيسية للأدمن وأزرار إدارة المهام
     const menuTexts = [
       '📋 إدارة المهام', '➕ مهمة جديدة', '📊 إحصائيات',
       '📤 طلبات السحب',  '👥 المستخدمون',  '💱 سعر الصرف',
       '🔧 لوحة الأدمن',  '🏠 القائمة الرئيسية',
+      // أزرار adminTasks reply keyboard
+      '🔙 رجوع', '❌ إلغاء', '✏️ تعديل', '🔁 فتح/إغلاق',
+      '📝 الحقول', '🎯 الميزات', '🗑 حذف المهمة', '📥 التسليمات', '👁 معاينة',
+      '✅ نعم، احذف', '✅ نعم، أرسل', '🔴 إجباري', '🟡 اختياري',
+      '🟢 مفتوحة', '🔴 مغلقة', '➕ إضافة حقل',
     ];
     if (menuTexts.includes(msg.text)) return;
     await handleAdminText(bot, msg, msg.from.id);

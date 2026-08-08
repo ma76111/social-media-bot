@@ -100,7 +100,7 @@ function featuresListKeyboard(task) {
   }]);
   rows.push([
     { text: '➕ إضافة ميزة', callback_data: `feat_add:${sh(task.id)}` },
-    { text: '🔙 رجوع',       callback_data: `adm_task:${sh(task.id)}` },
+    { text: '🔙 رجوع',       callback_data: `feat_back:${sh(task.id)}` },
   ]);
   return { inline_keyboard: rows };
 }
@@ -257,6 +257,20 @@ function register(bot, isAdmin) {
         parse_mode: 'Markdown',
         reply_markup: featuresListKeyboard(task),
       });
+      return;
+    }
+
+    // ── رجوع من الميزات إلى تفاصيل المهمة ──────
+    if (data.startsWith('feat_back:')) {
+      await bot.answerCallbackQuery(query.id);
+      const taskId = expandTaskId(data.split(':')[1]);
+      const task   = db.getTask(taskId);
+      if (!task) return bot.sendMessage(chatId, '⚠️ المهمة غير موجودة.');
+      // إرسال رسالة تطلب الضغط على اسم المهمة من القائمة
+      bot.sendMessage(chatId,
+        `✅ اضغط على اسم المهمة "*${escMd(db.getTaskText(task, 'name', 'ar'))}*" من القائمة السفلية للرجوع إليها.`,
+        { parse_mode: 'Markdown' }
+      );
       return;
     }
 

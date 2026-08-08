@@ -409,8 +409,24 @@ function register(bot, isAdmin) {
           return sendFieldsList(bot, msg.chat.id, task);
         }
         if (text === BTN.FEATURES) {
-          // تفويض لـ features handler عبر callback
-          return bot.sendMessage(msg.chat.id, `🎯 لإدارة الميزات استخدم:\n/features_${task.id.substring(0,8)}`);
+          const featuresH = require('./features');
+          // نبعت قائمة الميزات مباشرة
+          const featuresListKeyboard = require('./features').buildFeatureButtons;
+          bot.sendMessage(msg.chat.id, `🎯 *ميزات المهمة "${escMd(db.getTaskText(task, 'name', 'ar'))}"* (${(task.features||[]).length}):`, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                ...(task.features || []).map(f => [{
+                  text: `${f.label || f.type}`,
+                  callback_data: `feat_detail:${task.id.substring(0,8)}:${f.id.substring(0,8)}`,
+                }]),
+                [
+                  { text: '➕ إضافة ميزة', callback_data: `feat_add:${task.id.substring(0,8)}` },
+                ],
+              ],
+            },
+          });
+          return;
         }
         if (text === BTN.SUBMISSIONS) {
           const adminSubsH = require('./adminSubmissions');
@@ -429,6 +445,25 @@ function register(bot, isAdmin) {
             { parse_mode: 'Markdown', reply_markup: yesNoKeyboard() }
           );
         }
+        if (step === 'broadcast_confirm') {
+          const task = db.getTask(data.taskId);
+          if (text === '✅ نعم، أرسل') {
+            bot.sendMessage(msg.chat.id, '📢 جاري إرسال الإشعارات...');
+            const { broadcastNewTask } = require('./user');
+            broadcastNewTask(bot, task).then(count => {
+              bot.sendMessage(msg.chat.id,
+                count > 0
+                  ? `✅ تم إرسال الإشعار لـ *${count}* مستخدم.`
+                  : `⚠️ لا يوجد مستخدمون لإرسال الإشعار إليهم.`,
+                { parse_mode: 'Markdown' }
+              );
+            }).catch(() => {});
+          }
+          setSession(adminId, 'task_detail', 'main', { taskId: data.taskId });
+          const updatedTask = db.getTask(data.taskId);
+          return sendTaskDetail(bot, msg.chat.id, updatedTask);
+        }
+
         if (step === 'confirm_delete') {
           if (text === BTN.CONFIRM_DELETE) {
             const name = db.getTaskText(task, 'name', 'ar');

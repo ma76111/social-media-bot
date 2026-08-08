@@ -381,7 +381,11 @@ function register(bot, isAdmin) {
       '🔧 لوحة الأدمن',  '🏠 القائمة الرئيسية',
     ];
     if (menuTexts.includes(msg.text)) return;
-    const menuTexts2 = ['⚙️ الإعدادات', '⚙️ إعدادات النظام', '📨 إرسال رسالة', '🔙 رجوع'];
+    const menuTexts2 = ['⚙️ الإعدادات', '⚙️ إعدادات النظام', '📨 إرسال رسالة', '🔙 رجوع',
+      // أزرار adminTasks
+      '❌ إلغاء', '✏️ تعديل', '🔁 فتح/إغلاق', '📝 الحقول', '🎯 الميزات',
+      '🗑 حذف المهمة', '📥 التسليمات', '👁 معاينة', '✅ نعم، احذف',
+    ];
     if (menuTexts2.includes(msg.text)) return;
     await handleAdminText(bot, msg, msg.from.id);
   });
