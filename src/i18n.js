@@ -152,6 +152,30 @@ const translations = {
     en: (m, a, s, r) => `❌ *Your withdrawal was rejected*\n\n💳 Method: ${m}\n💰 Amount: \`${a} ${s}\`\n${r ? `📝 Reason: ${r}\n` : ''}\n↩️ Amount returned to your balance.\n💡 Contact support if you have any questions.`,
   },
 
+  // ── اشتراك إجباري ──────────────────────────────────────
+  join_required: {
+    ar: (label) =>
+      `🔒 *للوصول إلى البوت، يجب الاشتراك في قناتنا أولاً!*\n\n` +
+      `📢 القناة: *${label}*\n\n` +
+      `1️⃣ اضغط زرار الاشتراك\n` +
+      `2️⃣ اضغط ✅ تحققت بعد الاشتراك`,
+    en: (label) =>
+      `🔒 *To use the bot, you must join our channel first!*\n\n` +
+      `📢 Channel: *${label}*\n\n` +
+      `1️⃣ Press the Join button\n` +
+      `2️⃣ Press ✅ Verified after joining`,
+  },
+  join_btn_join:      { ar: '📢 اشترك الآن',   en: '📢 Join Now'  },
+  join_btn_verify:    { ar: '✅ تحققت',         en: '✅ Verified'  },
+  join_not_yet:       {
+    ar: '❌ *لم يتم التحقق بعد!*\n\nتأكد من اشتراكك في القناة ثم اضغط ✅ تحققت مجدداً.',
+    en: '❌ *Not verified yet!*\n\nMake sure you joined the channel then press ✅ Verified again.',
+  },
+  join_verified:      {
+    ar: '✅ *تم التحقق بنجاح!*\n\nأهلاً بيك 🎉',
+    en: '✅ *Verified successfully!*\n\nWelcome 🎉',
+  },
+
   // settings
   settings_title:     { ar: '⚙️ *التفضيلات*',               en: '⚙️ *Preferences*'            },
   settings_current:   { ar: (l, c) => `🌐 اللغة: *${l}*\n💱 العملة: *${c}*`,

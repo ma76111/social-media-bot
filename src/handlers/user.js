@@ -72,6 +72,7 @@ function parseCodeSpans(rawText) {
 }
 
 const withdrawHandler = require('./withdraw');
+const { isMember, sendJoinPrompt, getJoinConfig } = require('../utils/membership');
 
 // ─────────────────────────────────────────────
 //  Keyboards
@@ -339,9 +340,18 @@ function register(bot, adminIds = []) {
     db.getUser(msg.from.id);
   });
 
-  bot._sendUserStart = (msg) => {
+  bot._sendUserStart = async (msg) => {
     clearSession(msg.from.id);
     db.getUser(msg.from.id);
+
+    // فحص الاشتراك الإجباري
+    const lang = getLang(msg.from.id);
+    const joined = await isMember(bot, msg.from.id);
+    if (!joined) {
+      await sendJoinPrompt(bot, msg.chat.id, lang);
+      return;
+    }
+
     sendHome(bot, msg.chat.id, msg.from.id, msg.from.first_name);
   };
 
@@ -393,8 +403,28 @@ function register(bot, adminIds = []) {
       }
     }
 
-    if (data.startsWith('task_view:')) {
-      await bot.answerCallbackQuery(query.id);
+    // ── فحص الاشتراك عند الضغط على "تحققت" ──
+    if (data === 'join_check') {
+      const joined = await isMember(bot, userId);
+      if (!joined) {
+        await bot.answerCallbackQuery(query.id, {
+          text: lang === 'ar'
+            ? '❌ لم تشترك بعد! اشترك في القناة ثم اضغط تحققت.'
+            : '❌ Not joined yet! Join the channel then press Verified.',
+          show_alert: true,
+        });
+        return;
+      }
+      await bot.answerCallbackQuery(query.id, {
+        text: lang === 'ar' ? '✅ تم التحقق!' : '✅ Verified!',
+      });
+      // احذف رسالة الاشتراك وأكمل التدفق
+      bot.deleteMessage(chatId, msgId).catch(() => {});
+      sendHome(bot, chatId, userId, query.from.first_name);
+      return;
+    }
+
+    if (data.startsWith('task_view:')) {      await bot.answerCallbackQuery(query.id);
       const task = db.getTask(data.split(':')[1]);
       if (!task || !task.isOpen) return bot.sendMessage(chatId, t('task_unavailable', lang));
       await _sendTaskDetail(bot, chatId, task, userId);
@@ -525,7 +555,16 @@ function register(bot, adminIds = []) {
         if (typeof n === 'string') return text.includes(n);
         return Object.values(n).some(v => v && text.includes(v));
       });
-      if (task) { await showTaskDetailByTask(bot, msg.chat.id, userId, task); return; }
+      if (task) {
+        // فحص الاشتراك الإجباري قبل عرض تفاصيل المهمة
+        const joined = await isMember(bot, userId);
+        if (!joined) {
+          await sendJoinPrompt(bot, msg.chat.id, getLang(userId));
+          return;
+        }
+        await showTaskDetailByTask(bot, msg.chat.id, userId, task);
+        return;
+      }
     }
 
     if (!session || session.step !== 'filling') return;
@@ -804,6 +843,17 @@ async function confirmSubmission(bot, chatId, userId, taskId, query) {
   if (!session || session.step !== 'confirming' || session.taskId !== taskId)
     return bot.sendMessage(chatId, t('sub_session_expired', lang));
 
+  // ── فحص أن المهمة لا تزال مفتوحة وقت التأكيد ──
+  const taskCheck = db.getTask(taskId);
+  if (!taskCheck || !taskCheck.isOpen) {
+    clearSession(userId);
+    const tasks = db.listTasks(true);
+    return bot.sendMessage(chatId,
+      t('task_unavailable', lang),
+      await mainMenuKeyboardForUser(tasks, userId)
+    );
+  }
+
   // ── فحص تكرار البيانات عبر كل المستخدمين ──
   const duplicate = db.hasSubmittedData(taskId, session.answers, userId);
   if (duplicate) {
@@ -900,7 +950,7 @@ async function _sendTaskDetailPreview(bot, chatId, task, adminId, lang = 'ar') {
     let fieldsText = `📋 *الحقول (${fields.length}):*\n`;
     for (const f of fields) {
       const altInfo = f.altType ? ` / ${f.altType}` : '';
-      fieldsText += `${f.required ? '🔴' : '🟡'} ${escMd(f.label)} \`(${f.type}${altInfo})\`\n`;
+      fieldsText += `${f.required ? '🔴' : '🟡'} ${escMd(getFieldLabel(f, lang))} \`(${f.type}${altInfo})\`\n`;
     }
     await bot.sendMessage(chatId, fieldsText, { parse_mode: 'Markdown' });
   }

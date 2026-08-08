@@ -164,10 +164,16 @@ async function sendApprovedAndNotify(bot, taskId, notifyApprovedFn) {
   for (const sub of subs) {
     const reward = db.getEffectiveReward(sub.userId, task);
     db.addBalance(sub.userId, reward);
-    if (notifyApprovedFn) await notifyApprovedFn(bot, sub, task);
+    if (notifyApprovedFn) {
+      try {
+        await notifyApprovedFn(bot, sub, task);
+      } catch (e) {
+        console.warn(`[Exporter] فشل إشعار المستخدم ${sub.userId}: ${e.message}`);
+      }
+    }
   }
 
-  // حذف بعد الإشعار
+  // حذف بعد الإشعار — حتى لو فشل إشعار بعض المستخدمين
   db.bulkDeleteSubmissions(taskId, subs.map(s => s.id));
 
   return { filePath, count: subs.length };
@@ -189,10 +195,16 @@ async function sendRejectedAndNotify(bot, taskId, notifyRejectedFn, reason = nul
   const filePath = buildFile(subs, fields, exportFilePath(taskId, db.getTaskText(task, 'name', 'ar'), '_rejected'));
 
   for (const sub of subs) {
-    if (notifyRejectedFn) await notifyRejectedFn(bot, sub, task, reason || sub.rejectReason);
+    if (notifyRejectedFn) {
+      try {
+        await notifyRejectedFn(bot, sub, task, reason || sub.rejectReason);
+      } catch (e) {
+        console.warn(`[Exporter] فشل إشعار المستخدم ${sub.userId}: ${e.message}`);
+      }
+    }
   }
 
-  // حذف بعد الإشعار
+  // حذف بعد الإشعار — حتى لو فشل إشعار بعض المستخدمين
   db.bulkDeleteSubmissions(taskId, subs.map(s => s.id));
 
   return { filePath, count: subs.length };

@@ -20,6 +20,7 @@ const SETTING_LABELS = {
   botEnabled:      { label: 'تفعيل البوت للمستخدمين',           type: 'bool'   },
   referralEnabled: { label: 'تفعيل الإحالة',                    type: 'bool'   },
   referralReward:  { label: 'مكافأة الإحالة (EGP)',              type: 'number' },
+  joinEnabled:     { label: 'اشتراك إجباري في القناة',           type: 'bool'   },
 };
 
 // ─────────────────────────────────────────────
@@ -47,8 +48,44 @@ function settingsInlineKeyboard() {
     else                        display = `${val}`;
     return [{ text: `${meta.label}: ${display}`, callback_data: `cfg_edit:${key}` }];
   });
+  // زرار مخصص لإعدادات القناة
+  rows.push([{ text: '📢 إعداد قناة الاشتراك الإجباري', callback_data: 'cfg_join_menu' }]);
   rows.push([{ text: '🔙 رجوع', callback_data: 'cfg_back' }]);
   return { inline_keyboard: rows };
+}
+
+// ─────────────────────────────────────────────
+//  Display — قائمة إعداد القناة الإجبارية
+// ─────────────────────────────────────────────
+function sendJoinSettingsMenu(bot, chatId) {
+  const s = db.getSettings();
+  const status    = s.joinEnabled ? '✅ مفعَّل' : '❌ معطَّل';
+  const channelId = s.joinChannelId   || '_(غير محدد)_';
+  const label     = s.joinChannelLabel || '_(غير محدد)_';
+  const url       = s.joinChannelUrl   || '_(غير محدد)_';
+
+  bot.sendMessage(chatId,
+    `🔒 *إعداد الاشتراك الإجباري*\n━━━━━━━━━━━━━━━━━━\n` +
+    `الحالة: ${status}\n` +
+    `معرف القناة: \`${escMd(channelId)}\`\n` +
+    `اسم القناة: ${escMd(label)}\n` +
+    `رابط القناة: ${escMd(url)}\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
+    `⚠️ _تأكد أن البوت مضاف كأدمن في القناة/المجموعة_`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: s.joinEnabled ? '🔴 تعطيل الاشتراك الإجباري' : '🟢 تفعيل الاشتراك الإجباري',
+             callback_data: 'cfg_join_toggle' }],
+          [{ text: '📢 تغيير معرف القناة (@username أو -100xxxx)',  callback_data: 'cfg_join_id'    }],
+          [{ text: '✏️ تغيير اسم القناة (للعرض)',                   callback_data: 'cfg_join_label' }],
+          [{ text: '🔗 تغيير رابط القناة',                         callback_data: 'cfg_join_url'   }],
+          [{ text: '🔙 رجوع للإعدادات', callback_data: 'cfg_menu' }],
+        ],
+      },
+    }
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -56,12 +93,16 @@ function settingsInlineKeyboard() {
 // ─────────────────────────────────────────────
 function sendSettingsMenu(bot, chatId) {
   const s = db.getSettings();
+  const joinStatus = s.joinEnabled
+    ? `✅ مفعَّل — ${s.joinChannelLabel || s.joinChannelId || '(غير محدد)'}`
+    : '❌ معطَّل';
   bot.sendMessage(chatId,
     `⚙️ *إعدادات النظام*\n━━━━━━━━━━━━━━━━━━\n` +
     `💳 حد أدنى السحب: \`${s.minWithdrawal} EGP\`\n` +
     `💳 حد أقصى السحب: \`${s.maxWithdrawal > 0 ? s.maxWithdrawal + ' EGP' : 'بلا حد'}\`\n` +
     `🤖 البوت: ${s.botEnabled ? '✅ مفعَّل' : '❌ معطَّل'}\n` +
     `👥 الإحالة: ${s.referralEnabled ? `✅ (${s.referralReward} EGP)` : '❌'}\n` +
+    `🔒 اشتراك إجباري: ${joinStatus}\n` +
     `━━━━━━━━━━━━━━━━━━\n_اضغط على أي إعداد لتعديله_`,
     { parse_mode: 'Markdown', reply_markup: settingsInlineKeyboard() }
   );
@@ -120,7 +161,8 @@ function register(bot, isAdmin, mainKeyboard) {
     const session = getSession(msg.from.id);
     // لو في session لغير الإعدادات → اتركها للـ handler المسؤول
     if (session && session.type !== 'setting' && session.type !== 'broadcast_msg'
-        && session.type !== 'broadcast_one_id' && session.type !== 'broadcast_list_ids') return;
+        && session.type !== 'broadcast_one_id' && session.type !== 'broadcast_list_ids'
+        && session.type !== 'join_setting') return;
     clearSession(msg.from.id);
     bot.sendMessage(msg.chat.id, '🏠 القائمة الرئيسية', {
       reply_markup: typeof mainKeyboard === 'function'
@@ -139,6 +181,25 @@ function register(bot, isAdmin, mainKeyboard) {
     if (msg.text === '❌ إلغاء') {
       clearSession(adminId);
       return bot.sendMessage(msg.chat.id, '❌ تم الإلغاء.', { reply_markup: settingsReplyKeyboard() });
+    }
+
+    // ── إعداد القناة: انتظار قيمة جديدة ──
+    if (session.type === 'join_setting') {
+      const { key } = session;
+      clearSession(adminId);
+      const value = msg.text.trim();
+      db.setSetting(key, value);
+      const labels = {
+        joinChannelId:    'معرف القناة',
+        joinChannelLabel: 'اسم القناة',
+        joinChannelUrl:   'رابط القناة',
+      };
+      bot.sendMessage(msg.chat.id,
+        `✅ تم تحديث *${labels[key] || key}* → \`${escMd(value)}\``,
+        { parse_mode: 'Markdown' }
+      );
+      sendJoinSettingsMenu(bot, msg.chat.id);
+      return;
     }
 
     // ── إعداد: انتظار قيمة جديدة ──
@@ -274,7 +335,10 @@ function register(bot, isAdmin, mainKeyboard) {
     if (data === 'cfg_back') {
       await bot.answerCallbackQuery(query.id);
       clearSession(adminId);
-      sendSettingsMenu(bot, chatId);
+      // رجوع للقائمة الرئيسية للأدمن
+      bot.sendMessage(chatId, '🏠 القائمة الرئيسية', {
+        reply_markup: mainKeyboard(adminId),
+      });
       return;
     }
 
@@ -310,6 +374,72 @@ function register(bot, isAdmin, mainKeyboard) {
             keyboard: [[{ text: '❌ إلغاء' }]],
             resize_keyboard: true, one_time_keyboard: true,
           },
+        }
+      );
+      return;
+    }
+
+    // ── إعداد القناة الإجبارية ───────────────
+    if (data === 'cfg_join_menu') {
+      await bot.answerCallbackQuery(query.id);
+      sendJoinSettingsMenu(bot, chatId);
+      return;
+    }
+
+    if (data === 'cfg_join_toggle') {
+      await bot.answerCallbackQuery(query.id);
+      const cur = db.getSetting('joinEnabled');
+      db.setSetting('joinEnabled', !cur);
+      bot.sendMessage(chatId,
+        `🔒 الاشتراك الإجباري الآن: ${!cur ? '✅ مفعَّل' : '❌ معطَّل'}`,
+        { parse_mode: 'Markdown' }
+      );
+      sendJoinSettingsMenu(bot, chatId);
+      return;
+    }
+
+    if (data === 'cfg_join_id') {
+      await bot.answerCallbackQuery(query.id);
+      const cur = db.getSetting('joinChannelId') || '(فارغ)';
+      setSession(adminId, { type: 'join_setting', key: 'joinChannelId' });
+      bot.sendMessage(chatId,
+        `📢 *معرف القناة/المجموعة*\n\nالحالي: \`${escMd(cur)}\`\n\n` +
+        `أرسل المعرف الجديد:\n` +
+        `• مثال قناة عامة: \`@MediaBuyer_Group\`\n` +
+        `• مثال مجموعة خاصة: \`-1001234567890\`\n\n` +
+        `⚠️ _تأكد أن البوت مضاف كأدمن_`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { keyboard: [[{ text: '❌ إلغاء' }]], resize_keyboard: true, one_time_keyboard: true },
+        }
+      );
+      return;
+    }
+
+    if (data === 'cfg_join_label') {
+      await bot.answerCallbackQuery(query.id);
+      const cur = db.getSetting('joinChannelLabel') || '(فارغ)';
+      setSession(adminId, { type: 'join_setting', key: 'joinChannelLabel' });
+      bot.sendMessage(chatId,
+        `✏️ *اسم القناة للعرض*\n\nالحالي: \`${escMd(cur)}\`\n\nأرسل الاسم الجديد:`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { keyboard: [[{ text: '❌ إلغاء' }]], resize_keyboard: true, one_time_keyboard: true },
+        }
+      );
+      return;
+    }
+
+    if (data === 'cfg_join_url') {
+      await bot.answerCallbackQuery(query.id);
+      const cur = db.getSetting('joinChannelUrl') || '(فارغ)';
+      setSession(adminId, { type: 'join_setting', key: 'joinChannelUrl' });
+      bot.sendMessage(chatId,
+        `🔗 *رابط القناة/المجموعة*\n\nالحالي: \`${escMd(cur)}\`\n\n` +
+        `أرسل الرابط الجديد:\n• مثال: \`https://t.me/MediaBuyer_Group\``,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { keyboard: [[{ text: '❌ إلغاء' }]], resize_keyboard: true, one_time_keyboard: true },
         }
       );
       return;

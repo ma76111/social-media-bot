@@ -672,8 +672,9 @@ function addBalance(userId, amount) {
   const users = loadUsersCached();
   const uid = String(userId);
   if (!users[uid]) getUser(userId);
-  // حد أدنى: الرصيد لا يقل عن صفر عند الخصم التلقائي
-  const newBal = Math.round((users[uid].balance + amount) * 10000) / 10000;
+  const raw    = Math.round((users[uid].balance + amount) * 10000) / 10000;
+  // الرصيد لا يقل عن صفر أبداً — حماية من الخصم الزائد
+  const newBal = Math.max(0, raw);
   users[uid].balance     = newBal;
   users[uid].totalEarned = Math.round((users[uid].totalEarned + (amount > 0 ? amount : 0)) * 10000) / 10000;
   saveUsers(users);
@@ -754,12 +755,17 @@ function findUserByUsername(username) {
 const SETTINGS_FILE = path.join(__dirname, '..', 'data', 'settings.json');
 
 const DEFAULT_SETTINGS = {
-  minWithdrawal:   50,
-  maxWithdrawal:   5000,
-  botEnabled:      true,
-  referralEnabled: false,
-  referralReward:  0,
-  maintenanceMsg:  '',   // رسالة مخصصة لوضع الصيانة
+  minWithdrawal:        50,
+  maxWithdrawal:        5000,
+  botEnabled:           true,
+  referralEnabled:      false,
+  referralReward:       0,
+  maintenanceMsg:       '',   // رسالة مخصصة لوضع الصيانة
+  // ── اشتراك إجباري ──────────────────────────
+  joinEnabled:          false,  // هل الاشتراك الإجباري مفعَّل؟
+  joinChannelId:        '',     // معرف القناة/المجموعة: @username أو -100xxxx
+  joinChannelLabel:     '',     // اسم القناة للعرض في الرسالة
+  joinChannelUrl:       '',     // رابط القناة/المجموعة
 };
 
 let _settingsCache = null;

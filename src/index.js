@@ -76,9 +76,12 @@ const CB_NAV_PREFIXES = [
   'task_cancel_detail',
   'adm_alt:',
   'cfg_menu',      'cfg_back',    'cfg_edit:',
+  'cfg_join_menu', 'cfg_join_toggle', 'cfg_join_id', 'cfg_join_label', 'cfg_join_url',
   'adm_preview:',  'adm_preview_lang:',
   // Admin management navigation — لا تحتاج lock
   'admins_list',   'admins_back', 'admins_view:',
+  // اشتراك إجباري — navigation بحتة
+  'join_check',
 ];
 
 function _isNavCb(data) {
@@ -294,7 +297,7 @@ bot.onText(/\/cancel/, (msg) => {
 userHandler.register(bot, ADMIN_IDS);
 adminTasksH.register(bot, isAdmin);
 adminSubsH.register(bot, isAdmin);
-withdrawHandler.register(bot, isAdmin);
+withdrawHandler.register(bot, isAdmin, ADMIN_IDS);
 adminUsersH.register(bot, isAdmin);
 featuresHandler.register(bot, isAdmin);
 adminAdminsH.register(bot, isAdmin, isSuperAdmin, MAIN_ADMIN_IDS);

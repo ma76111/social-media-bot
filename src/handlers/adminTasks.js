@@ -9,6 +9,13 @@ const db = require('../db');
 // نستخدم listUsers وgetWithdrawals من db مباشرةً
 const { escMd } = require('../utils/escMd');
 
+// ─── helper: جلب اسم الحقل بشكل آمن (string أو i18n object) ───
+function getFieldLabel(field, lang = 'ar') {
+  if (!field || !field.label) return '';
+  if (typeof field.label === 'string') return field.label;
+  return field.label[lang] || field.label['ar'] || Object.values(field.label).find(v => v) || '';
+}
+
 // ─────────────────────────────────────────────
 //  Session state per admin
 // ─────────────────────────────────────────────
@@ -519,7 +526,7 @@ function register(bot, isAdmin) {
       rows.push([{ text: '❌ إلغاء', callback_data: `adm_fd:${sh(taskId)}:${sh(fieldId)}` }]);
 
       bot.sendMessage(chatId,
-        `🔀 *نوع بديل للحقل "${escMd(field.label)}"*\n\n` +
+        `🔀 *نوع بديل للحقل "${escMd(getFieldLabel(field))}"*\n\n` +
         `النوع الحالي: \`${field.type}\`\n\n` +
         `اختر النوع البديل المسموح به أيضاً:`,
         { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } }
@@ -542,7 +549,7 @@ function register(bot, isAdmin) {
       db.updateField(taskId, fieldId, { altType });
       bot.sendMessage(chatId,
         `✅ *تم تعيين النوع البديل!*\n\n` +
-        `الحقل "*${escMd(field.label)}*" يقبل الآن:\n` +
+        `الحقل "*${escMd(getFieldLabel(field))}*" يقبل الآن:\n` +
         `• \`${field.type}\`\n` +
         `• \`${altType}\``,
         { parse_mode: 'Markdown' }

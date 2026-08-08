@@ -346,10 +346,9 @@ async function handleWithdrawText(bot, msg, userId) {
       t('wd_success', lang, wd.id.substring(0, 8), methodLabel(method, lang), display, sym),
       { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } }
     );
-    // إشعار الأدمنز
-    const ADMIN_IDS_ENV = (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+    // إشعار الأدمنز (الرئيسيين + الإضافيين)
     const networkNote2 = isUsdt(method) ? `🌐 الشبكة: *${method === 'usdt_trc20' ? 'TRC20 (Tron)' : 'BEP20 (BSC)'}*\n` : '';
-    for (const adminId of ADMIN_IDS_ENV) {
+    for (const adminId of _adminIds) {
       bot.sendMessage(adminId,
         `💳 *طلب سحب جديد!*\n\n` +
         `👤 المستخدم: ${escMd(username)}\n` +
@@ -501,7 +500,11 @@ async function handleWithdrawText(bot, msg, userId) {
 // ─────────────────────────────────────────────
 //  register
 // ─────────────────────────────────────────────
-function register(bot, isAdmin) {
+// قائمة الأدمنز الحية — تُعبَّأ عند register
+let _adminIds = [];
+
+function register(bot, isAdmin, adminIds = []) {
+  _adminIds = adminIds;
 
   // زرار 💳 سحب / Withdraw (أي لغة)
   bot.onText(/💳 سحب|💳 Withdraw/i, async (msg) => {
@@ -561,7 +564,7 @@ function register(bot, isAdmin) {
     sendWdAdminMenu(bot, msg.chat.id);
   });
 
-  // استقبال نصوص — يشمل بدء السحب من القائمة
+  // استقبال نصوص — خطوات السحب فقط (بدء السحب يعالجه bot.onText أعلى)
   bot.on('message', async (msg) => {
     const userId = msg.from.id;
     if (!msg.text || msg.text.startsWith('/')) return;
@@ -569,55 +572,10 @@ function register(bot, isAdmin) {
     if (!rateLimiter.check(userId)) return;
 
     const text = msg.text.trim();
-    const lang = getLang(userId);
 
-    // بدء السحب من زرار القائمة الرئيسية
-    if (/💳 سحب|💳 Withdraw/i.test(text)) {
-      // منع التكرار — لو في session نشط بأي step ما عدا select_method → تجاهل
-      const existingSess = getSession(userId);
-      if (existingSess) return;
-
-      const currency = getCurrency(userId);
-      const user     = db.getUser(userId);
-      const { display: bal, symbol } = await formatAmount(user.balance, currency);
-
-      if (user.balance <= 0) {
-        return bot.sendMessage(msg.chat.id, t('wd_zero_balance', lang, bal, symbol), { parse_mode: 'Markdown' });
-      }
-
-      const pendingWds = db.getUserWithdrawals(userId, 'pending');
-      if (pendingWds.length > 0) {
-        return bot.sendMessage(msg.chat.id,
-          lang === 'ar'
-            ? `⚠️ لديك طلب سحب معلق بالفعل (${pendingWds[0].amount} EGP).\n\nانتظر حتى تتم معالجته قبل إنشاء طلب جديد.`
-            : `⚠️ You already have a pending withdrawal (${pendingWds[0].amount} EGP).\n\nWait for it to be processed before creating a new one.`,
-          { parse_mode: 'Markdown' }
-        );
-      }
-
-      // نسجل session فوراً لمنع التكرار
-      setSession(userId, 'select_method', {});
-
-      const history = db.getUserWithdrawals(userId);
-      let historyText = '';
-      if (history.length > 0) {
-        const statusIcon = { pending: '⏳', approved: '✅', rejected: '❌' };
-        historyText = `\n\n📋 *${lang === 'ar' ? 'آخر سحوباتك:' : 'Recent withdrawals:'}*\n`;
-        for (const w of history.slice(0, 3)) {
-          const { display: wAmt, symbol: wSym } = await formatAmount(w.amount, currency);
-          historyText += `${statusIcon[w.status] || '•'} ${wAmt} ${wSym} — ${methodLabel(w.method, lang)} — ${w.createdAt.substring(0, 10)}\n`;
-        }
-      }
-
-      bot.sendMessage(msg.chat.id,
-        `${t('wd_title', lang)}\n\n${t('wd_balance_avail', lang, bal, symbol)}${historyText}\n\n${t('wd_choose_method', lang)}`,
-        { parse_mode: 'Markdown', reply_markup: methodReplyKeyboard(lang) }
-      );
-      return;
-    }
-
-    // باقي خطوات السحب
+    // لو مفيش session نشط → تجاهل
     if (!getSession(userId)) return;
+    // تجاهل زرار أدمن
     if (/📤 طلبات السحب/i.test(text)) return;
     await handleWithdrawText(bot, msg, userId);
   });
