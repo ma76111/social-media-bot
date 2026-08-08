@@ -275,7 +275,7 @@ function register(bot, isAdmin, mainKeyboard) {
           failed++;
         }
         // throttle 25/ثانية
-        if (sent % 25 === 0) await new Promise(r => setTimeout(r, 1100));
+        if (sent > 0 && sent % 25 === 0) await new Promise(r => setTimeout(r, 1100));
       }
 
       bot.sendMessage(msg.chat.id,

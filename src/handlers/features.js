@@ -222,6 +222,22 @@ function register(bot, isAdmin) {
     if (!isAdmin(msg.from.id)) return;
     if (!msg.text || msg.text.startsWith('/')) return;
     if (msg.text.startsWith('🟢') || msg.text.startsWith('🔴')) return;
+    // تجاهل أزرار adminTasks وأزرار القائمة الرئيسية
+    const skipTexts = [
+      '📋 إدارة المهام', '➕ مهمة جديدة', '📊 إحصائيات',
+      '📤 طلبات السحب', '👥 المستخدمون', '💱 سعر الصرف',
+      '⚙️ الإعدادات', '🔙 رجوع', '❌ إلغاء',
+      '✏️ تعديل', '🔁 فتح/إغلاق', '📝 الحقول',
+      '🎯 الميزات', '🗑 حذف المهمة', '📥 التسليمات', '👁 معاينة',
+      '✅ نعم، احذف', '✅ نعم، أرسل', '❌ لا',
+      '🔴 إجباري', '🟡 اختياري', '🟢 مفتوحة', '🔴 مغلقة',
+      '➕ إضافة حقل', '💰 المكافأة', '👤 الحد الأقصى',
+      '🔢 الترتيب', '🎥 الفيديو',
+    ];
+    if (skipTexts.includes(msg.text)) return;
+    // معالجة فقط لو في session features نشط
+    const session = getSession(msg.from.id);
+    if (!session) return;
     await handleAdminText(bot, msg, msg.from.id);
   });
 

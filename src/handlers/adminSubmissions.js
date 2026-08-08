@@ -815,7 +815,8 @@ function register(bot, isAdmin) {
         db.addBalance(sub.userId, reward);
 
         // ── مكافأة الإحالة ──
-        if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {          const submitter = db.getUser(sub.userId);
+        if (refSettings.referralEnabled && refSettings.referralPerSub > 0) {
+          const submitter = db.getUser(sub.userId);
           if (submitter.referredBy) {
             db.addBalance(submitter.referredBy, refSettings.referralPerSub);
             bot.sendMessage(submitter.referredBy,

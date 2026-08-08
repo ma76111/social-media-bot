@@ -568,8 +568,7 @@ function register(bot, isAdmin, adminIds = []) {
   bot.on('message', async (msg) => {
     const userId = msg.from.id;
     if (!msg.text || msg.text.startsWith('/')) return;
-    if (isAdmin(userId)) return; // الأدمن مش يدخل في flow السحب
-    if (!rateLimiter.check(userId)) return;
+    if (isAdmin(userId)) return;
 
     const text = msg.text.trim();
 
@@ -578,7 +577,7 @@ function register(bot, isAdmin, adminIds = []) {
     // تجاهل زرار أدمن
     if (/📤 طلبات السحب/i.test(text)) return;
 
-    // rate limiter للمستخدم — مع رسالة تحذير
+    // rate limiter مع رسالة تحذير
     if (!rateLimiter.check(userId)) {
       if (rateLimiter.isFirstBlock(userId)) {
         bot.sendMessage(msg.chat.id,

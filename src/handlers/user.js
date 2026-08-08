@@ -370,6 +370,8 @@ function allMenuTexts() {
   s.add('💎 USDT (TRC20 / BEP20)');
   s.add('✅ تأكيد الطلب'); s.add('✅ Confirm Request');
   s.add('🔙 رجوع'); s.add('🔙 Back');
+  // broadcast_confirm buttons
+  s.add('✅ نعم، أرسل'); s.add('❌ لا');
   return s;
 }
 const MENU_TEXTS = allMenuTexts();
