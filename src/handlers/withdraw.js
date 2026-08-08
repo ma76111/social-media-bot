@@ -577,6 +577,19 @@ function register(bot, isAdmin, adminIds = []) {
     if (!getSession(userId)) return;
     // تجاهل زرار أدمن
     if (/📤 طلبات السحب/i.test(text)) return;
+
+    // rate limiter للمستخدم — مع رسالة تحذير
+    if (!rateLimiter.check(userId)) {
+      if (rateLimiter.isFirstBlock(userId)) {
+        bot.sendMessage(msg.chat.id,
+          getLang(userId) === 'ar'
+            ? '⏳ أرسلت رسائل كثيرة بسرعة، انتظر لحظة ثم حاول مجدداً.'
+            : '⏳ You are sending too fast, please wait a moment.'
+        ).catch(() => {});
+      }
+      return;
+    }
+
     await handleWithdrawText(bot, msg, userId);
   });
 

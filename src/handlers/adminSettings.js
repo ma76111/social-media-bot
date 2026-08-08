@@ -161,7 +161,7 @@ function register(bot, isAdmin, mainKeyboard) {
   });
 
   // زرار رجوع من لوحة الإعدادات — يرجع للكيبورد الرئيسي
-  // فقط لو الأدمن في session إعدادات أو مفيش session
+  // فقط لو الأدمن في session إعدادات أو مفيش session إعدادات
   bot.onText(/^🔙 رجوع$/, (msg) => {
     if (!isAdmin(msg.from.id)) return;
     const session = getSession(msg.from.id);
@@ -169,9 +169,9 @@ function register(bot, isAdmin, mainKeyboard) {
     if (session && session.type !== 'setting' && session.type !== 'broadcast_msg'
         && session.type !== 'broadcast_one_id' && session.type !== 'broadcast_list_ids'
         && session.type !== 'join_setting' && session.type !== 'support_text') return;
-    // لو adminTasks عنده session نشط → تجاهل
+    // لو adminTasks عنده session نشط بأي flow غير task_list → تجاهل (يعالجه adminTasks)
     const adminTasksSession = require('./adminTasks').getSession(msg.from.id);
-    if (adminTasksSession) return;
+    if (adminTasksSession && adminTasksSession.flow !== 'task_list') return;
     clearSession(msg.from.id);
     bot.sendMessage(msg.chat.id, '🏠 القائمة الرئيسية', {
       reply_markup: typeof mainKeyboard === 'function'

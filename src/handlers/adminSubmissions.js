@@ -45,7 +45,7 @@ function subsMenuKeyboard(taskId) {
         { text: '🎯 انتقائي بالأسماء', callback_data: `selective_names:${s}` },
       ],
       [
-        { text: '🔙 رجوع', callback_data: `adm_task:${s}` },
+        { text: '🔙 إغلاق', callback_data: `subs_close:${s}` },
       ],
     ],
   };
@@ -523,6 +523,15 @@ function register(bot, isAdmin) {
     const data    = query.data;
     const adminId = query.from.id;
     const chatId  = query.message.chat.id;
+
+    // ── إغلاق لوحة التسليمات (العودة للقائمة الرئيسية) ──
+    if (data.startsWith('subs_close:')) {
+      await bot.answerCallbackQuery(query.id);
+      return bot.sendMessage(chatId,
+        '🏠 تم إغلاق لوحة التسليمات.\nاختر مهمة من القائمة للوصول إليها مجدداً.',
+        { reply_markup: { remove_keyboard: false } }
+      );
+    }
 
     // ── فتح لوحة التسليمات ────────────────────
     if (data.startsWith('adm_subs:')) {

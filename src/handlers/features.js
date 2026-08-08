@@ -10,6 +10,7 @@
  */
 
 const db = require('../db');
+const { escMd } = require('../utils/escMd');
 
 // ─────────────────────────────────────────────
 //  Feature types registry

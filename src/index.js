@@ -73,6 +73,7 @@ const CB_NAV_PREFIXES = [
   'adm_tasks_list','wda_menu',    'wda_list:',   'wda_detail:',
   'adm_task:',     'adm_fields:', 'feat_list:',  'feat_detail:',
   'subs_list:',    'usr_view:',   'adm_refresh_rate',
+  'subs_close:',
   'task_cancel_detail',
   'adm_alt:',
   'cfg_menu',      'cfg_back',    'cfg_edit:',

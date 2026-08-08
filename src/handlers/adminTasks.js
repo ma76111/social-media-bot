@@ -319,6 +319,7 @@ function register(bot, isAdmin) {
       return sendTaskList(bot, msg.chat.id, adminId);
     }
     if (text === '➕ مهمة جديدة') {
+      clearSession(adminId); // نظّف أي session سابق قبل البدء
       return startCreateTask(bot, msg.chat.id, adminId);
     }
     if (text === '📊 إحصائيات') {
@@ -446,22 +447,26 @@ function register(bot, isAdmin) {
           );
         }
         if (step === 'broadcast_confirm') {
-          const task = db.getTask(data.taskId);
-          if (text === '✅ نعم، أرسل') {
-            bot.sendMessage(msg.chat.id, '📢 جاري إرسال الإشعارات...');
-            const { broadcastNewTask } = require('./user');
-            broadcastNewTask(bot, task).then(count => {
-              bot.sendMessage(msg.chat.id,
-                count > 0
-                  ? `✅ تم إرسال الإشعار لـ *${count}* مستخدم.`
-                  : `⚠️ لا يوجد مستخدمون لإرسال الإشعار إليهم.`,
-                { parse_mode: 'Markdown' }
-              );
-            }).catch(() => {});
-          }
-          setSession(adminId, 'task_detail', 'main', { taskId: data.taskId });
           const updatedTask = db.getTask(data.taskId);
-          return sendTaskDetail(bot, msg.chat.id, updatedTask);
+          if (text === '✅ نعم، أرسل') {
+            if (updatedTask) {
+              bot.sendMessage(msg.chat.id, '📢 جاري إرسال الإشعارات...');
+              const { broadcastNewTask } = require('./user');
+              broadcastNewTask(bot, updatedTask).then(count => {
+                bot.sendMessage(msg.chat.id,
+                  count > 0
+                    ? `✅ تم إرسال الإشعار لـ *${count}* مستخدم.`
+                    : `⚠️ لا يوجد مستخدمون لإرسال الإشعار إليهم.`,
+                  { parse_mode: 'Markdown' }
+                );
+              }).catch(() => {});
+            }
+          }
+          // سواء ضغط "نعم" أو "لا" أو أي شيء → ارجع لتفاصيل المهمة
+          setSession(adminId, 'task_detail', 'main', { taskId: data.taskId });
+          if (updatedTask) return sendTaskDetail(bot, msg.chat.id, updatedTask);
+          clearSession(adminId);
+          return sendTaskList(bot, msg.chat.id, adminId);
         }
 
         if (step === 'confirm_delete') {
