@@ -17,19 +17,19 @@
 
 const db = require('../db');
 
-const MEMBER_TTL     = 10 * 60 * 1000;  // 10 دقائق
-const NON_MEMBER_TTL = 30 * 1000;       // 30 ثانية
+const MEMBER_TTL     = 24 * 60 * 60 * 1000;  // 24 ساعة
+const NON_MEMBER_TTL = 30 * 1000;            // 30 ثانية
 
 // Map: userId → { result: boolean, expiresAt: number }
 const _cache = new Map();
 
-// تنظيف دوري كل 15 دقيقة لمنع تراكم entries منتهية
+// تنظيف دوري كل ساعة لمنع تراكم entries منتهية
 setInterval(() => {
   const now = Date.now();
   for (const [uid, entry] of _cache.entries()) {
     if (now >= entry.expiresAt) _cache.delete(uid);
   }
-}, 15 * 60 * 1000);
+}, 60 * 60 * 1000);
 
 /**
  * مسح cache مستخدم معين (يُستدعى عند الضغط على "تحققت")
