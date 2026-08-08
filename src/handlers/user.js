@@ -73,7 +73,6 @@ function parseCodeSpans(rawText) {
 
 const withdrawHandler = require('./withdraw');
 const { isMember, sendJoinPrompt, getJoinConfig, invalidateMemberCache } = require('../utils/membership');
-const { notifyUser, notifyApproved, notifyRejected } = require('../utils/notify');
 
 // ─────────────────────────────────────────────
 //  Keyboards
@@ -419,38 +418,6 @@ function register(bot, adminIds = []) {
     });
   });
 
-  // إحالتي
-  bot.onText(/🔗 إحالتي|🔗 My Referral/i, async (msg) => {
-    await guardMembership(msg, async () => {
-      const userId = msg.from.id;
-      const lang   = getLang(userId);
-      const botUsername = process.env.BOT_USERNAME || '';
-      const refLink = botUsername
-        ? `https://t.me/${botUsername}?start=ref_${userId}`
-        : `\`/start ref_${userId}\``;
-      const stats = db.getReferralStats(userId);
-      const s     = db.getSettings();
-      const perSubText = s.referralPerSub > 0
-        ? (lang === 'ar'
-            ? `\n💸 مكافأة كل تسليم مقبول: \`${s.referralPerSub} EGP\``
-            : `\n💸 Per approved submission: \`${s.referralPerSub} EGP\``)
-        : '';
-      bot.sendMessage(msg.chat.id,
-        t('referral_info', lang, stats.count, refLink) + perSubText,
-        { parse_mode: 'Markdown' }
-      );
-    });
-  });
-
-  // دعم
-  bot.onText(/💬 الدعم|💬 Support/i, async (msg) => {
-    await guardMembership(msg, () => {
-      const s = db.getSettings();
-      if (!s.supportEnabled || !s.supportText) return;
-      bot.sendMessage(msg.chat.id, s.supportText, { parse_mode: 'Markdown' });
-    });
-  });
-
   // Callbacks
   bot.on('callback_query', async (query) => {
     if (query._blocked) return;
@@ -567,7 +534,7 @@ function register(bot, adminIds = []) {
     // الأدمن لا يدخل في هذا الـ handler إطلاقاً
     if (_adminIds.includes(userId)) return;
 
-    // ── فحص الاشتراك الإجباري (مركزي للرسائل غير المغطاة بـ onText) ──
+    // ── فحص الاشتراك الإجباري ──
     if (text && !text.startsWith('/')) {
       const cfg = getJoinConfig();
       if (cfg.enabled) {
@@ -579,13 +546,43 @@ function register(bot, adminIds = []) {
       }
     }
 
-    // rate limiter — لا يُطبَّق لو المستخدم داخل session نشط (تسليم)
+    // rate limiter
     if (session && session.step === 'filling') {
       if (db.getUser(userId).isBanned) {
         clearSession(userId);
         return bot.sendMessage(msg.chat.id, '🚫 حسابك محظور.');
       }
     } else if (rateLimiter && !rateLimiter.check(userId)) {
+      return;
+    }
+
+    // ── زرار إحالتي ──
+    if (text === '🔗 إحالتي' || text === '🔗 My Referral') {
+      const lang        = getLang(userId);
+      const botUsername = process.env.BOT_USERNAME || '';
+      const refLink     = botUsername
+        ? `https://t.me/${botUsername}?start=ref_${userId}`
+        : `\`/start ref_${userId}\``;
+      const stats = db.getReferralStats(userId);
+      const s     = db.getSettings();
+      const perSubText = s.referralPerSub > 0
+        ? (lang === 'ar'
+            ? `\n💸 مكافأة كل تسليم مقبول: \`${s.referralPerSub} EGP\``
+            : `\n💸 Per approved submission: \`${s.referralPerSub} EGP\``)
+        : '';
+      bot.sendMessage(msg.chat.id,
+        t('referral_info', lang, stats.count, refLink) + perSubText,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // ── زرار الدعم ──
+    if (text === '💬 الدعم' || text === '💬 Support') {
+      const s = db.getSettings();
+      if (s.supportEnabled && s.supportText) {
+        bot.sendMessage(msg.chat.id, s.supportText, { parse_mode: 'Markdown' });
+      }
       return;
     }
 
@@ -1065,11 +1062,44 @@ async function _sendTaskDetailPreview(bot, chatId, task, adminId, lang = 'ar') {
     { parse_mode: 'Markdown' }
   );
 }
-async function notifyApprovedUser(bot, sub, task) {
-  return notifyApproved(bot, sub, task);
+async function notifyUser(bot, userId, text) {
+  // نحاول Markdown أولاً — لو فشل نبعت plain text
+  try {
+    await bot.sendMessage(userId, text, { parse_mode: 'Markdown' });
+    return true;
+  } catch (e) {
+    if (e.code === 'ETELEGRAM') {
+      try {
+        // plain text fallback — نشيل رموز Markdown
+        const plain = text
+          .replace(/\*([^*]+)\*/g, '$1')
+          .replace(/_([^_]+)_/g, '$1')
+          .replace(/`([^`]+)`/g, '$1');
+        await bot.sendMessage(userId, plain);
+        return true;
+      } catch { return false; }
+    }
+    return false;
+  }
 }
-async function notifyRejectedUser(bot, sub, task, reason) {
-  return notifyRejected(bot, sub, task, reason);
+
+async function notifyApproved(bot, sub, task) {
+  const lang     = getLang(sub.userId);
+  const currency = getCurrency(sub.userId);
+  const reward   = db.getEffectiveReward(sub.userId, task);
+  const { display, symbol } = await formatAmount(reward, currency);
+  const taskName = db.getTaskText(task, 'name', lang);
+  return notifyUser(bot, sub.userId,
+    t('notify_approved', lang, taskName, sub.id.substring(0, 8), display, symbol)
+  );
+}
+
+async function notifyRejected(bot, sub, task, reason) {
+  const lang     = getLang(sub.userId);
+  const taskName = db.getTaskText(task, 'name', lang);
+  return notifyUser(bot, sub.userId,
+    t('notify_rejected', lang, taskName, sub.id.substring(0, 8), reason || '')
+  );
 }
 
 // ─────────────────────────────────────────────
