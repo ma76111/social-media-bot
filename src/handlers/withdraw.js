@@ -3,7 +3,7 @@
 const db = require('../db');
 const { t, currencySymbol, LANG_NAMES, CURRENCY_NAMES } = require('../i18n');
 const { formatAmount, getUsdtEgpRate } = require('../utils/price');
-const { notifyUser } = require('./user');
+const { notifyUser } = require('../utils/notify');
 const rateLimiter = require('../utils/rateLimiter');
 const { escMd } = require('../utils/escMd');
 

@@ -73,6 +73,7 @@ function parseCodeSpans(rawText) {
 
 const withdrawHandler = require('./withdraw');
 const { isMember, sendJoinPrompt, getJoinConfig, invalidateMemberCache } = require('../utils/membership');
+const { notifyUser, notifyApproved, notifyRejected } = require('../utils/notify');
 
 // ─────────────────────────────────────────────
 //  Keyboards
@@ -1064,44 +1065,11 @@ async function _sendTaskDetailPreview(bot, chatId, task, adminId, lang = 'ar') {
     { parse_mode: 'Markdown' }
   );
 }
-async function notifyUser(bot, userId, text) {
-  // نحاول Markdown أولاً — لو فشل نبعت plain text
-  try {
-    await bot.sendMessage(userId, text, { parse_mode: 'Markdown' });
-    return true;
-  } catch (e) {
-    if (e.code === 'ETELEGRAM') {
-      try {
-        // plain text fallback — نشيل رموز Markdown
-        const plain = text
-          .replace(/\*([^*]+)\*/g, '$1')
-          .replace(/_([^_]+)_/g, '$1')
-          .replace(/`([^`]+)`/g, '$1');
-        await bot.sendMessage(userId, plain);
-        return true;
-      } catch { return false; }
-    }
-    return false;
-  }
+async function notifyApprovedUser(bot, sub, task) {
+  return notifyApproved(bot, sub, task);
 }
-
-async function notifyApproved(bot, sub, task) {
-  const lang     = getLang(sub.userId);
-  const currency = getCurrency(sub.userId);
-  const reward   = db.getEffectiveReward(sub.userId, task);
-  const { display, symbol } = await formatAmount(reward, currency);
-  const taskName = db.getTaskText(task, 'name', lang);
-  return notifyUser(bot, sub.userId,
-    t('notify_approved', lang, taskName, sub.id.substring(0, 8), display, symbol)
-  );
-}
-
-async function notifyRejected(bot, sub, task, reason) {
-  const lang     = getLang(sub.userId);
-  const taskName = db.getTaskText(task, 'name', lang);
-  return notifyUser(bot, sub.userId,
-    t('notify_rejected', lang, taskName, sub.id.substring(0, 8), reason || '')
-  );
+async function notifyRejectedUser(bot, sub, task, reason) {
+  return notifyRejected(bot, sub, task, reason);
 }
 
 // ─────────────────────────────────────────────

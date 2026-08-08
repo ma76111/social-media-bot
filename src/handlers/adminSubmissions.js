@@ -2,7 +2,7 @@
 
 const db       = require('../db');
 const exporter = require('../exporter');
-const { notifyUser, notifyApproved, notifyRejected } = require('./user');
+const { notifyUser, notifyApproved, notifyRejected } = require('../utils/notify');
 const { escMd } = require('../utils/escMd');
 const sessions = {};
 function setSession(a, f, s, d = {}) { sessions[a] = { flow: f, step: s, data: d }; }

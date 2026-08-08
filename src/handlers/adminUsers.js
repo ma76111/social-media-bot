@@ -16,7 +16,7 @@
 
 const db = require('../db');
 const { t, currencySymbol } = require('../i18n');
-const { notifyUser, getLang } = require('./user');
+const { notifyUser, getLang } = require('../utils/notify');
 const { escMd } = require('../utils/escMd');
 
 // ─────────────────────────────────────────────
