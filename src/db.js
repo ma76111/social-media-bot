@@ -619,7 +619,7 @@ function getUser(userId) {
   if (!users[uid]) {
     users[uid] = {
       id:          userId,
-      uid:         nextUid(),      // معرف تسلسلي داخلي  #1, #2, ...
+      uid:         nextUid(),
       username:    null,
       firstName:   null,
       balance:     0,
@@ -630,7 +630,8 @@ function getUser(userId) {
       bannedAt:    null,
       banReason:   null,
       joinedAt:    now(),
-      rewardOverrides: {},         // { taskId: customReward }
+      referredBy:  null,         // ID الشخص اللي دعاه
+      rewardOverrides: {},
     };
     saveUsers(users);
   }
@@ -640,6 +641,7 @@ function getUser(userId) {
     lang: null, currency: null, isBanned: false,
     bannedAt: null, banReason: null, joinedAt: null,
     rewardOverrides: {}, uid: null, username: null, firstName: null,
+    referredBy: null,
   };
   for (const [k, v] of Object.entries(defaults)) {
     if (!(k in users[uid])) { users[uid][k] = v; dirty = true; }
@@ -759,13 +761,16 @@ const DEFAULT_SETTINGS = {
   maxWithdrawal:        5000,
   botEnabled:           true,
   referralEnabled:      false,
-  referralReward:       0,
-  maintenanceMsg:       '',   // رسالة مخصصة لوضع الصيانة
+  referralReward:       0,       // مكافأة الإحالة عند التسجيل (EGP)
+  referralPerSub:       0,       // مكافأة لكل تسليم مقبول للمُحيل (EGP)
+  maintenanceMsg:       '',
+  supportEnabled:       false,
+  supportText:          '',      // نص الدعم القابل للتعديل
   // ── اشتراك إجباري ──────────────────────────
-  joinEnabled:          false,  // هل الاشتراك الإجباري مفعَّل؟
-  joinChannelId:        '',     // معرف القناة/المجموعة: @username أو -100xxxx
-  joinChannelLabel:     '',     // اسم القناة للعرض في الرسالة
-  joinChannelUrl:       '',     // رابط القناة/المجموعة
+  joinEnabled:          false,
+  joinChannelId:        '',
+  joinChannelLabel:     '',
+  joinChannelUrl:       '',
 };
 
 let _settingsCache = null;
@@ -846,6 +851,39 @@ function removeExtraAdmin(userId) {
   saveSettings(settings);
   _settingsCache = settings;
   return true;
+}
+
+// ─────────────────────────────────────────────
+//  REFERRAL
+// ─────────────────────────────────────────────
+
+/**
+ * تسجيل أن userId أتى عبر إحالة referrerId
+ * لا تُكتب إذا كان المستخدم موجوداً أو عنده referredBy مسبقاً
+ */
+function setReferredBy(userId, referrerId) {
+  if (String(userId) === String(referrerId)) return false; // لا يُحيل نفسه
+  const users = loadUsersCached();
+  const uid   = String(userId);
+  if (!users[uid]) getUser(userId);
+  if (users[uid].referredBy) return false; // مسجَّل مسبقاً
+  users[uid].referredBy = Number(referrerId);
+  saveUsers(users);
+  return true;
+}
+
+/**
+ * إحصائيات الإحالة لمستخدم معين
+ * @returns {{ count: number, earned: number }}
+ */
+function getReferralStats(referrerId) {
+  const users = loadUsersCached();
+  const rid   = Number(referrerId);
+  const referredUsers = Object.values(users).filter(u => u.referredBy === rid);
+  return {
+    count:  referredUsers.length,
+    users:  referredUsers.map(u => ({ id: u.id, username: u.username, firstName: u.firstName, joinedAt: u.joinedAt })),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -992,6 +1030,8 @@ module.exports = {
   DEFAULT_SETTINGS,
   // Admins
   getExtraAdmins, addExtraAdmin, removeExtraAdmin,
+  // Referral
+  setReferredBy, getReferralStats,
   // Withdrawals
   createWithdrawal, getWithdrawals, getUserWithdrawals, updateWithdrawalStatus,
   // Lock utility (للاستخدام في handlers عند الحاجة)

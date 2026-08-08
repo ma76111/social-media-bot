@@ -164,6 +164,23 @@ async function sendApprovedAndNotify(bot, taskId, notifyApprovedFn) {
   for (const sub of subs) {
     const reward = db.getEffectiveReward(sub.userId, task);
     db.addBalance(sub.userId, reward);
+
+    // ── مكافأة الإحالة لكل تسليم مقبول ──────────────────
+    const s = db.getSettings();
+    if (s.referralEnabled && s.referralPerSub > 0) {
+      const submitter = db.getUser(sub.userId);
+      if (submitter.referredBy) {
+        db.addBalance(submitter.referredBy, s.referralPerSub);
+        // إشعار المُحيل
+        if (notifyApprovedFn) {
+          bot.sendMessage(submitter.referredBy,
+            `💸 *مكافأة إحالة!*\n\nأحد من أصدقائك الذين دعوتهم أنجز مهمة وحصلت على \`${s.referralPerSub} EGP\` 🎉`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+      }
+    }
+
     if (notifyApprovedFn) {
       try {
         await notifyApprovedFn(bot, sub, task);

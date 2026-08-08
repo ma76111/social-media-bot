@@ -19,7 +19,9 @@ const SETTING_LABELS = {
   maxWithdrawal:   { label: 'حد أقصى السحب (EGP — 0=بلا حد)', type: 'number' },
   botEnabled:      { label: 'تفعيل البوت للمستخدمين',           type: 'bool'   },
   referralEnabled: { label: 'تفعيل الإحالة',                    type: 'bool'   },
-  referralReward:  { label: 'مكافأة الإحالة (EGP)',              type: 'number' },
+  referralReward:  { label: 'مكافأة الإحالة عند التسجيل (EGP)', type: 'number' },
+  referralPerSub:  { label: 'مكافأة الإحالة لكل تسليم مقبول (EGP)', type: 'number' },
+  supportEnabled:  { label: 'تفعيل زرار الدعم',                 type: 'bool'   },
   joinEnabled:     { label: 'اشتراك إجباري في القناة',           type: 'bool'   },
 };
 
@@ -48,7 +50,8 @@ function settingsInlineKeyboard() {
     else                        display = `${val}`;
     return [{ text: `${meta.label}: ${display}`, callback_data: `cfg_edit:${key}` }];
   });
-  // زرار مخصص لإعدادات القناة
+  // زرار مخصص لإعدادات القناة وزرار تعديل نص الدعم
+  rows.push([{ text: '💬 تعديل نص الدعم', callback_data: 'cfg_support_text' }]);
   rows.push([{ text: '📢 إعداد قناة الاشتراك الإجباري', callback_data: 'cfg_join_menu' }]);
   rows.push([{ text: '🔙 رجوع', callback_data: 'cfg_back' }]);
   return { inline_keyboard: rows };
@@ -96,12 +99,16 @@ function sendSettingsMenu(bot, chatId) {
   const joinStatus = s.joinEnabled
     ? `✅ مفعَّل — ${s.joinChannelLabel || s.joinChannelId || '(غير محدد)'}`
     : '❌ معطَّل';
+  const refStatus = s.referralEnabled
+    ? `✅ (تسجيل: ${s.referralReward} EGP | تسليم: ${s.referralPerSub} EGP)`
+    : '❌ معطَّل';
   bot.sendMessage(chatId,
     `⚙️ *إعدادات النظام*\n━━━━━━━━━━━━━━━━━━\n` +
     `💳 حد أدنى السحب: \`${s.minWithdrawal} EGP\`\n` +
     `💳 حد أقصى السحب: \`${s.maxWithdrawal > 0 ? s.maxWithdrawal + ' EGP' : 'بلا حد'}\`\n` +
     `🤖 البوت: ${s.botEnabled ? '✅ مفعَّل' : '❌ معطَّل'}\n` +
-    `👥 الإحالة: ${s.referralEnabled ? `✅ (${s.referralReward} EGP)` : '❌'}\n` +
+    `👥 الإحالة: ${refStatus}\n` +
+    `💬 الدعم: ${s.supportEnabled ? '✅ مفعَّل' : '❌ معطَّل'}\n` +
     `🔒 اشتراك إجباري: ${joinStatus}\n` +
     `━━━━━━━━━━━━━━━━━━\n_اضغط على أي إعداد لتعديله_`,
     { parse_mode: 'Markdown', reply_markup: settingsInlineKeyboard() }
@@ -162,7 +169,7 @@ function register(bot, isAdmin, mainKeyboard) {
     // لو في session لغير الإعدادات → اتركها للـ handler المسؤول
     if (session && session.type !== 'setting' && session.type !== 'broadcast_msg'
         && session.type !== 'broadcast_one_id' && session.type !== 'broadcast_list_ids'
-        && session.type !== 'join_setting') return;
+        && session.type !== 'join_setting' && session.type !== 'support_text') return;
     clearSession(msg.from.id);
     bot.sendMessage(msg.chat.id, '🏠 القائمة الرئيسية', {
       reply_markup: typeof mainKeyboard === 'function'
@@ -181,6 +188,19 @@ function register(bot, isAdmin, mainKeyboard) {
     if (msg.text === '❌ إلغاء') {
       clearSession(adminId);
       return bot.sendMessage(msg.chat.id, '❌ تم الإلغاء.', { reply_markup: settingsReplyKeyboard() });
+    }
+
+    // ── نص الدعم: انتظار النص الجديد ──
+    if (session.type === 'support_text') {
+      clearSession(adminId);
+      const value = msg.text.trim();
+      db.setSetting('supportText', value);
+      bot.sendMessage(msg.chat.id,
+        `✅ تم تحديث نص الدعم.\n\n*معاينة:*\n${value}`,
+        { parse_mode: 'Markdown' }
+      );
+      sendSettingsMenu(bot, msg.chat.id);
+      return;
     }
 
     // ── إعداد القناة: انتظار قيمة جديدة ──
@@ -379,9 +399,23 @@ function register(bot, isAdmin, mainKeyboard) {
       return;
     }
 
-    // ── إعداد القناة الإجبارية ───────────────
-    if (data === 'cfg_join_menu') {
+    // ── تعديل نص الدعم ──────────────────────
+    if (data === 'cfg_support_text') {
       await bot.answerCallbackQuery(query.id);
+      const cur = db.getSetting('supportText') || '(فارغ)';
+      setSession(adminId, { type: 'support_text' });
+      bot.sendMessage(chatId,
+        `💬 *نص الدعم*\n\nالحالي:\n${escMd(cur)}\n\nأرسل النص الجديد (يدعم Markdown):\n_مثال: للتواصل مع الدعم: @username_`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { keyboard: [[{ text: '❌ إلغاء' }]], resize_keyboard: true, one_time_keyboard: true },
+        }
+      );
+      return;
+    }
+
+    // ── إعداد القناة الإجبارية ───────────────
+    if (data === 'cfg_join_menu') {      await bot.answerCallbackQuery(query.id);
       sendJoinSettingsMenu(bot, chatId);
       return;
     }

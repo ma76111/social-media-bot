@@ -77,6 +77,7 @@ const CB_NAV_PREFIXES = [
   'adm_alt:',
   'cfg_menu',      'cfg_back',    'cfg_edit:',
   'cfg_join_menu', 'cfg_join_toggle', 'cfg_join_id', 'cfg_join_label', 'cfg_join_url',
+  'cfg_support_text',
   'adm_preview:',  'adm_preview_lang:',
   // Admin management navigation — لا تحتاج lock
   'admins_list',   'admins_back', 'admins_view:',
@@ -309,7 +310,7 @@ onboarding.register(bot, (bot_, chatId, userId, firstName) => {
 });
 
 // /start للمستخدم العادي
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   if (isAdmin(msg.from.id)) return;
 
   // فحص الصيانة
@@ -321,12 +322,35 @@ bot.onText(/\/start/, (msg) => {
     );
   }
 
+  const isNewUser = !db.getUser(msg.from.id).lang;
+
   // حفظ بيانات المستخدم
   db.getUser(msg.from.id);
   db.updateUserMeta(msg.from.id, {
     username:  msg.from.username  || null,
     firstName: msg.from.first_name || null,
   });
+
+  // ── تتبع الإحالة — يعمل فقط للمستخدمين الجدد ──
+  const param = (match && match[1]) ? match[1].trim() : '';
+  if (param.startsWith('ref_') && isNewUser) {
+    const referrerId = parseInt(param.slice(4));
+    if (!isNaN(referrerId) && referrerId !== msg.from.id) {
+      const wasNew = db.setReferredBy(msg.from.id, referrerId);
+      // مكافأة التسجيل الفورية (لو مفعَّلة)
+      if (wasNew) {
+        const s = db.getSettings();
+        if (s.referralEnabled && s.referralReward > 0) {
+          db.addBalance(referrerId, s.referralReward);
+          // إشعار المُحيل
+          bot.sendMessage(referrerId,
+            `🎉 *مبروك!* أحد أصدقائك انضم عبر رابط إحالتك!\n💰 حصلت على مكافأة \`${s.referralReward} EGP\``,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+      }
+    }
+  }
 
   const user = db.getUser(msg.from.id);
 

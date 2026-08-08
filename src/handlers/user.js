@@ -80,6 +80,7 @@ const { isMember, sendJoinPrompt, getJoinConfig, invalidateMemberCache } = requi
 async function mainMenuKeyboardForUser(tasks = [], userId) {
   const lang     = getLang(userId);
   const currency = getCurrency(userId);
+  const s        = db.getSettings();
   const rows = await Promise.all(tasks.map(async tk => {
     const reward = db.getEffectiveReward(userId, tk);
     const { display, symbol } = await formatAmount(reward, currency);
@@ -87,12 +88,23 @@ async function mainMenuKeyboardForUser(tasks = [], userId) {
       text: `🟢 ${db.getTaskText(tk, 'name', lang)} — ${display} ${symbol}`,
     }];
   }));
+
+  // صف الإحالة والدعم
+  const extraRow = [];
+  if (s.referralEnabled) {
+    extraRow.push({ text: t('btn_referral', lang) });
+  }
+  if (s.supportEnabled && s.supportText) {
+    extraRow.push({ text: t('btn_support', lang) });
+  }
+
   return {
     reply_markup: {
       keyboard: [
         ...rows,
         [{ text: t('btn_balance', lang) }, { text: t('btn_pending', lang) }],
         [{ text: t('btn_withdraw', lang) }, { text: t('btn_settings', lang) }],
+        ...(extraRow.length ? [extraRow] : []),
         [{ text: t('btn_myid', lang) }],
       ],
       resize_keyboard: true,
@@ -309,7 +321,7 @@ async function buildPendingText(items, page, userId) {
 // ─────────────────────────────────────────────
 function allMenuTexts() {
   const s = new Set();
-  ['btn_balance','btn_pending','btn_withdraw','btn_settings'].forEach(k => {
+  ['btn_balance','btn_pending','btn_withdraw','btn_settings','btn_referral','btn_support'].forEach(k => {
     s.add(t(k,'ar')); s.add(t(k,'en'));
   });
   s.add('🆔 معرفي'); s.add('🆔 My ID');
@@ -403,6 +415,38 @@ function register(bot, adminIds = []) {
         `🆔 *${lang === 'ar' ? 'معرفك:' : 'Your Telegram ID:'}* \`${msg.from.id}\``,
         { parse_mode: 'Markdown' }
       );
+    });
+  });
+
+  // إحالتي
+  bot.onText(new RegExp(`${escRe(t('btn_referral','ar'))}|${escRe(t('btn_referral','en'))}`), async (msg) => {
+    await guardMembership(msg, async () => {
+      const userId = msg.from.id;
+      const lang   = getLang(userId);
+      const botUsername = process.env.BOT_USERNAME || '';
+      const refLink = botUsername
+        ? `https://t.me/${botUsername}?start=ref_${userId}`
+        : `\`/start ref_${userId}\``;
+      const stats = db.getReferralStats(userId);
+      const s     = db.getSettings();
+      const perSubText = s.referralPerSub > 0
+        ? (lang === 'ar'
+            ? `\n💸 مكافأة كل تسليم مقبول: \`${s.referralPerSub} EGP\``
+            : `\n💸 Per approved submission: \`${s.referralPerSub} EGP\``)
+        : '';
+      bot.sendMessage(msg.chat.id,
+        t('referral_info', lang, stats.count, refLink) + perSubText,
+        { parse_mode: 'Markdown' }
+      );
+    });
+  });
+
+  // دعم
+  bot.onText(new RegExp(`${escRe(t('btn_support','ar'))}|${escRe(t('btn_support','en'))}`), async (msg) => {
+    await guardMembership(msg, () => {
+      const s = db.getSettings();
+      if (!s.supportEnabled || !s.supportText) return;
+      bot.sendMessage(msg.chat.id, s.supportText, { parse_mode: 'Markdown' });
     });
   });
 

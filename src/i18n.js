@@ -23,6 +23,8 @@ const translations = {
   btn_withdraw:       { ar: '💳 سحب',             en: '💳 Withdraw'         },
   btn_settings:       { ar: '⚙️ التفضيلات',       en: '⚙️ Preferences'      },
   btn_myid:           { ar: '🆔 معرفي',           en: '🆔 My ID'            },
+  btn_referral:       { ar: '🔗 إحالتي',          en: '🔗 My Referral'      },
+  btn_support:        { ar: '💬 الدعم',            en: '💬 Support'          },
 
   // ──────────────────────────────────────────
   //  MESSAGES
@@ -152,9 +154,30 @@ const translations = {
     en: (m, a, s, r) => `❌ *Your withdrawal was rejected*\n\n💳 Method: ${m}\n💰 Amount: \`${a} ${s}\`\n${r ? `📝 Reason: ${r}\n` : ''}\n↩️ Amount returned to your balance.\n💡 Contact support if you have any questions.`,
   },
 
+  // ── إحالة ──────────────────────────────────────────────
+  referral_info: {
+    ar: (count, link) =>
+      `🔗 *رابط الإحالة الخاص بك*\n\n` +
+      `📊 عدد المُحالين: *${count}*\n\n` +
+      `شارك هذا الرابط مع أصدقائك:\n${link}\n\n` +
+      `💡 _ستحصل على مكافأة عند كل تسليم مقبول لمن دعوته!_`,
+    en: (count, link) =>
+      `🔗 *Your Referral Link*\n\n` +
+      `📊 Total referred: *${count}*\n\n` +
+      `Share this link with your friends:\n${link}\n\n` +
+      `💡 _You earn a reward for every approved submission by people you referred!_`,
+  },
+  notify_referral_reg: {
+    ar: (reward) => `🎉 *مبروك!* أحد أصدقائك انضم عبر رابط إحالتك!\n💰 حصلت على مكافأة \`${reward} EGP\``,
+    en: (reward) => `🎉 *Congratulations!* A friend joined via your referral link!\n💰 You earned \`${reward} EGP\``,
+  },
+  notify_referral_sub: {
+    ar: (reward) => `💸 *مكافأة إحالة!*\n\nأحد الأشخاص الذين دعوتهم أنجز مهمة وحصلت على \`${reward} EGP\` 🎉`,
+    en: (reward) => `💸 *Referral Reward!*\n\nSomeone you referred completed a task, you earned \`${reward} EGP\` 🎉`,
+  },
+
   // ── اشتراك إجباري ──────────────────────────────────────
-  join_required: {
-    ar: (label) =>
+  join_required: {    ar: (label) =>
       `🔒 *للوصول إلى البوت، يجب الاشتراك في قناتنا أولاً!*\n\n` +
       `📢 القناة: *${label}*\n\n` +
       `1️⃣ اضغط زرار الاشتراك\n` +
