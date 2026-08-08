@@ -216,8 +216,10 @@ function taskSummaryText(task) {
   );
 }
 
-function sendTaskList(bot, chatId) {
+function sendTaskList(bot, chatId, adminId = null) {
   const tasks = db.listTasks();
+  // نحفظ state لما الأدمن يختار مهمة
+  if (adminId) setSession(adminId, 'task_list', 'main', {});
   if (tasks.length === 0) {
     return bot.sendMessage(chatId, '📭 لا توجد مهام.', {
       reply_markup: {
@@ -314,7 +316,7 @@ function register(bot, isAdmin) {
     // ── القائمة الرئيسية / navigation ──────────
     if (text === '📋 إدارة المهام') {
       clearSession(adminId);
-      return sendTaskList(bot, msg.chat.id);
+      return sendTaskList(bot, msg.chat.id, adminId);
     }
     if (text === '➕ مهمة جديدة') {
       return startCreateTask(bot, msg.chat.id, adminId);
@@ -350,22 +352,22 @@ function register(bot, isAdmin) {
       }
       if (flow === 'task_detail') {
         clearSession(adminId);
-        return sendTaskList(bot, msg.chat.id);
+        return sendTaskList(bot, msg.chat.id, adminId);
       }
       if (flow === 'task_edit') {
         const task = db.getTask(data.taskId);
         if (task) { setSession(adminId, 'task_detail', 'main', { taskId: task.id }); return sendTaskDetail(bot, msg.chat.id, task); }
-        return sendTaskList(bot, msg.chat.id);
+        return sendTaskList(bot, msg.chat.id, adminId);
       }
       if (flow === 'fields_list') {
         const task = db.getTask(data.taskId);
         if (task) { setSession(adminId, 'task_detail', 'main', { taskId: task.id }); return sendTaskDetail(bot, msg.chat.id, task); }
-        return sendTaskList(bot, msg.chat.id);
+        return sendTaskList(bot, msg.chat.id, adminId);
       }
       if (flow === 'field_detail') {
         const task = db.getTask(data.taskId);
         if (task) { setSession(adminId, 'fields_list', 'main', { taskId: task.id }); return sendFieldsList(bot, msg.chat.id, task); }
-        return sendTaskList(bot, msg.chat.id);
+        return sendTaskList(bot, msg.chat.id, adminId);
       }
       // default
       clearSession(adminId);
@@ -393,7 +395,7 @@ function register(bot, isAdmin) {
       // ─ Task Detail: أزرار الإجراءات ─
       if (flow === 'task_detail') {
         const task = db.getTask(data.taskId);
-        if (!task) { clearSession(adminId); return sendTaskList(bot, msg.chat.id); }
+        if (!task) { clearSession(adminId); return sendTaskList(bot, msg.chat.id, adminId); }
 
         if (text === BTN.EDIT_TASK) {
           setSession(adminId, 'task_edit', 'main', { taskId: task.id });
@@ -444,7 +446,7 @@ function register(bot, isAdmin) {
       // ─ Task Edit: اختيار خاصية للتعديل ─
       if (flow === 'task_edit' && step === 'main') {
         const task = db.getTask(data.taskId);
-        if (!task) { clearSession(adminId); return sendTaskList(bot, msg.chat.id); }
+        if (!task) { clearSession(adminId); return sendTaskList(bot, msg.chat.id, adminId); }
 
         const propMap = {
           [BTN.EDIT_NAME_AR]:  { prop: 'name',      lang: 'ar' },
@@ -484,7 +486,7 @@ function register(bot, isAdmin) {
       // ─ Fields List: اختيار حقل ─
       if (flow === 'fields_list') {
         const task = db.getTask(data.taskId);
-        if (!task) { clearSession(adminId); return sendTaskList(bot, msg.chat.id); }
+        if (!task) { clearSession(adminId); return sendTaskList(bot, msg.chat.id, adminId); }
 
         if (text === BTN.ADD_FIELD) {
           setSession(adminId, 'add_field', 'label_ar', { taskId: task.id });
@@ -546,15 +548,7 @@ function register(bot, isAdmin) {
       }
     }
 
-    // ── لو مفيش session وضغط زرار task من قائمة المهام ──
-    if (!session) {
-      const tasks = db.listTasks();
-      const task  = tasks.find(t => text.includes(db.getTaskText(t, 'name', 'ar')));
-      if (task && (text.startsWith('🟢') || text.startsWith('🔴'))) {
-        setSession(adminId, 'task_detail', 'main', { taskId: task.id });
-        return sendTaskDetail(bot, msg.chat.id, task);
-      }
-    }
+    // ── إذا لم يكن هناك session ولم يُعالَج الزرار → ignore ──
   });
 
   // لا يوجد callback_query handler هنا — كل شيء Reply Keyboard
@@ -595,7 +589,7 @@ async function handleFieldDetailAction(bot, msg, adminId, session) {
   const chatId  = msg.chat.id;
   const text    = msg.text || '';
   const task    = db.getTask(data.taskId);
-  if (!task) { clearSession(adminId); return sendTaskList(bot, chatId); }
+  if (!task) { clearSession(adminId); return sendTaskList(bot, chatId, adminId); }
   const field   = task.fields.find(f => f.id === data.fieldId);
   if (!field) {
     setSession(adminId, 'fields_list', 'main', { taskId: data.taskId });
