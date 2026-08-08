@@ -336,17 +336,18 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
     const referrerId = parseInt(param.slice(4));
     if (!isNaN(referrerId) && referrerId !== msg.from.id) {
       const wasNew = db.setReferredBy(msg.from.id, referrerId);
-      // مكافأة التسجيل الفورية (لو مفعَّلة)
       if (wasNew) {
-        const s = db.getSettings();
+        const s        = db.getSettings();
+        const newName  = msg.from.first_name || msg.from.username || String(msg.from.id);
+        const newUser  = msg.from.username ? `@${msg.from.username}` : newName;
+
+        // إشعار المُحيل — دايماً بغض النظر عن وجود مكافأة
+        let notifyText = `👥 انضم ${newUser} عبر رابط إحالتك!`;
         if (s.referralEnabled && s.referralReward > 0) {
           db.addBalance(referrerId, s.referralReward);
-          // إشعار المُحيل
-          bot.sendMessage(referrerId,
-            `🎉 *مبروك!* أحد أصدقائك انضم عبر رابط إحالتك!\n💰 حصلت على مكافأة \`${s.referralReward} EGP\``,
-            { parse_mode: 'Markdown' }
-          ).catch(() => {});
+          notifyText += `\n💰 حصلت على مكافأة ${s.referralReward} EGP`;
         }
+        bot.sendMessage(referrerId, notifyText).catch(() => {});
       }
     }
   }
