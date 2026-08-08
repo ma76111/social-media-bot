@@ -295,11 +295,6 @@ bot.onText(/\/cancel/, (msg) => {
 //  Register handlers  (الترتيب مهم)
 // ─────────────────────────────────────────────
 
-// جلب username البوت مرة واحدة قبل أي شيء
-bot.getMe().then(me => {
-  userHandler.setBotUsername(me.username || '');
-}).catch(() => {});
-
 userHandler.register(bot, ADMIN_IDS);
 adminTasksH.register(bot, isAdmin);
 adminSubsH.register(bot, isAdmin);
