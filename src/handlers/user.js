@@ -343,13 +343,17 @@ const MENU_TEXTS = allMenuTexts();
 // ─────────────────────────────────────────────
 //  register
 // ─────────────────────────────────────────────
-let _botUsername = process.env.BOT_USERNAME || ''; // يُحدَّث عند التشغيل
+let _botUsername = process.env.BOT_USERNAME || '';
+
+function setBotUsername(username) {
+  if (username) _botUsername = username;
+}
 
 function register(bot, adminIds = []) {
   // نخزن adminIds للإشعارات
   _adminIds = adminIds;
 
-  // جلب username البوت تلقائياً من API مرة واحدة عند التشغيل
+  // جلب username البوت من API كـ fallback لو لم يُمرَّر مسبقاً
   if (!_botUsername) {
     bot.getMe().then(me => {
       _botUsername = me.username || '';
@@ -1172,7 +1176,7 @@ async function broadcastNewTask(bot, task) {
 //  Exports
 // ─────────────────────────────────────────────
 module.exports = {
-  register, notifyUser, notifyApproved, notifyRejected,
+  register, setBotUsername, notifyUser, notifyApproved, notifyRejected,
   clearSession, sendHome, broadcastNewTask,
   getLang, getCurrency, mainMenuKeyboardForUser,
   _sendTaskDetailPreview,
