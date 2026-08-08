@@ -419,7 +419,7 @@ function register(bot, adminIds = []) {
   });
 
   // إحالتي
-  bot.onText(new RegExp(`${escRe(t('btn_referral','ar'))}|${escRe(t('btn_referral','en'))}`), async (msg) => {
+  bot.onText(/🔗 إحالتي|🔗 My Referral/i, async (msg) => {
     await guardMembership(msg, async () => {
       const userId = msg.from.id;
       const lang   = getLang(userId);
@@ -442,7 +442,7 @@ function register(bot, adminIds = []) {
   });
 
   // دعم
-  bot.onText(new RegExp(`${escRe(t('btn_support','ar'))}|${escRe(t('btn_support','en'))}`), async (msg) => {
+  bot.onText(/💬 الدعم|💬 Support/i, async (msg) => {
     await guardMembership(msg, () => {
       const s = db.getSettings();
       if (!s.supportEnabled || !s.supportText) return;
