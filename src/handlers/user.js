@@ -355,34 +355,54 @@ function register(bot, adminIds = []) {
     sendHome(bot, msg.chat.id, msg.from.id, msg.from.first_name);
   };
 
+  // ─────────────────────────────────────────────
+  //  Membership guard — wrapper مركزي
+  //  يُطبَّق على كل رسائل المستخدم قبل أي handler
+  // ─────────────────────────────────────────────
+  async function guardMembership(msg, next) {
+    if (!msg.from || !msg.text || msg.text.startsWith('/')) return next();
+    const cfg = getJoinConfig();
+    if (!cfg.enabled) return next();
+    const joined = await isMember(bot, msg.from.id);
+    if (!joined) {
+      await sendJoinPrompt(bot, msg.chat.id, getLang(msg.from.id));
+      return;
+    }
+    return next();
+  }
+
   // رصيدي
   bot.onText(new RegExp(`${escRe(t('btn_balance','ar'))}|${escRe(t('btn_balance','en'))}`), async (msg) => {
-    const uid = msg.from.id;
-    const lang = getLang(uid);
-    const cur  = getCurrency(uid);
-    const user = db.getUser(uid);
-    const { display: bal, symbol: s1 } = await formatAmount(user.balance,     cur);
-    const { display: ear, symbol: s2 } = await formatAmount(user.totalEarned, cur);
-    bot.sendMessage(msg.chat.id, t('balance_text', lang, bal, ear, s1), { parse_mode: 'Markdown' });
+    await guardMembership(msg, async () => {
+      const uid = msg.from.id;
+      const lang = getLang(uid);
+      const cur  = getCurrency(uid);
+      const user = db.getUser(uid);
+      const { display: bal, symbol: s1 } = await formatAmount(user.balance,     cur);
+      const { display: ear, symbol: s2 } = await formatAmount(user.totalEarned, cur);
+      bot.sendMessage(msg.chat.id, t('balance_text', lang, bal, ear, s1), { parse_mode: 'Markdown' });
+    });
   });
 
   // الأموال المعلقة
-  bot.onText(new RegExp(`${escRe(t('btn_pending','ar'))}|${escRe(t('btn_pending','en'))}`), (msg) => {
-    sendPendingPage(bot, msg.chat.id, msg.from.id, 0);
+  bot.onText(new RegExp(`${escRe(t('btn_pending','ar'))}|${escRe(t('btn_pending','en'))}`), async (msg) => {
+    await guardMembership(msg, () => sendPendingPage(bot, msg.chat.id, msg.from.id, 0));
   });
 
   // التفضيلات
-  bot.onText(new RegExp(`${escRe(t('btn_settings','ar'))}|${escRe(t('btn_settings','en'))}`), (msg) => {
-    sendSettingsPage(bot, msg.chat.id, msg.from.id);
+  bot.onText(new RegExp(`${escRe(t('btn_settings','ar'))}|${escRe(t('btn_settings','en'))}`), async (msg) => {
+    await guardMembership(msg, () => sendSettingsPage(bot, msg.chat.id, msg.from.id));
   });
 
   // معرفي
-  bot.onText(/🆔 معرفي|🆔 My ID/i, (msg) => {
-    const lang = getLang(msg.from.id);
-    bot.sendMessage(msg.chat.id,
-      `🆔 *${lang === 'ar' ? 'معرفك:' : 'Your Telegram ID:'}* \`${msg.from.id}\``,
-      { parse_mode: 'Markdown' }
-    );
+  bot.onText(/🆔 معرفي|🆔 My ID/i, async (msg) => {
+    await guardMembership(msg, () => {
+      const lang = getLang(msg.from.id);
+      bot.sendMessage(msg.chat.id,
+        `🆔 *${lang === 'ar' ? 'معرفك:' : 'Your Telegram ID:'}* \`${msg.from.id}\``,
+        { parse_mode: 'Markdown' }
+      );
+    });
   });
 
   // Callbacks
@@ -495,8 +515,7 @@ function register(bot, adminIds = []) {
     const text    = msg.text;
     const session = sessions[userId];
 
-    // ── فحص الاشتراك الإجباري (مركزي) ──────────────────────────
-    // يُطبَّق على كل رسائل المستخدم — ما عدا /start (معالَج في index.js)
+    // ── فحص الاشتراك الإجباري (مركزي للرسائل غير المغطاة بـ onText) ──
     if (text && !text.startsWith('/')) {
       const cfg = getJoinConfig();
       if (cfg.enabled) {
